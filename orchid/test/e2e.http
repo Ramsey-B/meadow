@@ -1,0 +1,303 @@
+### E2E Test for Orchid API Polling Service
+### Prerequisites:
+### 1. Run `make infra` to start PostgreSQL, Redis, and Kafka
+### 2. Run `make dev` to start the application
+### 3. Use a REST client like VSCode REST Client or IntelliJ HTTP Client
+
+### Note: Replace X-Tenant-ID with a valid UUID (e.g., from your Keycloak setup)
+### For testing without auth, you may need to adjust the middleware
+
+@baseUrl = http://localhost:3000/api/v1
+@tenantId = 11111111-1111-1111-1111-111111111111
+
+### ============================================
+### STEP 1: Health Check
+### ============================================
+
+GET {{baseUrl}}/health
+Content-Type: application/json
+
+### ============================================
+### STEP 2: Create Integration
+### ============================================
+
+# @name createIntegration
+POST {{baseUrl}}/integrations
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "name": "JSONPlaceholder API",
+    "description": "Free fake API for testing",
+    "config_schema": {
+        "name": "JSONPlaceholder Config",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "type": "string",
+                    "default": "https://jsonplaceholder.typicode.com"
+                },
+                "user_id": {
+                    "type": "integer",
+                    "description": "User ID to fetch posts for"
+                }
+            },
+            "required": ["base_url"]
+        }
+    }
+}
+
+### Save integration ID for later
+@integrationId = {{createIntegration.response.body.id}}
+
+### ============================================
+### STEP 3: Create Config Instance
+### ============================================
+
+# @name createConfig
+POST {{baseUrl}}/configs
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "integration_id": "{{integrationId}}",
+    "name": "Test Config",
+    "values": {
+        "base_url": "https://jsonplaceholder.typicode.com",
+        "user_id": 1
+    },
+    "enabled": true
+}
+
+### Save config ID
+@configId = {{createConfig.response.body.id}}
+
+### ============================================
+### STEP 5: Create a Simple Plan (Single Request)
+### ============================================
+
+# @name createSimplePlan
+POST {{baseUrl}}/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "integration_id": "{{integrationId}}",
+    "key": "fetch-users-simple",
+    "name": "Fetch Users - Simple",
+    "description": "Simple plan to fetch all users",
+    "enabled": true,
+    "wait_seconds": 60,
+    "repeat_count": 0,
+    "plan_definition": {
+        "step": {
+            "url": "{{ config.base_url }}/users",
+            "method": "GET",
+            "timeout_seconds": 30
+        },
+        "max_execution_seconds": 60
+    }
+}
+
+### Save plan ID
+@simplePlanKey = {{createSimplePlan.response.body.key}}
+
+### ============================================
+### STEP 6: Create a Plan with Pagination (While Loop)
+### ============================================
+
+# @name createPaginatedPlan
+POST {{baseUrl}}/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "integration_id": "{{integrationId}}",
+    "key": "fetch-posts-paginated",
+    "name": "Fetch Posts - Paginated",
+    "description": "Fetches posts with pagination using while loop",
+    "enabled": true,
+    "wait_seconds": 300,
+    "repeat_count": 0,
+    "plan_definition": {
+        "step": {
+            "url": "{{ config.base_url }}/posts?_page={{ context.page || `1` }}&_limit=10",
+            "method": "GET",
+            "timeout_seconds": 30,
+            "while": "length(response.body) > `0`",
+            "break_when": "context.page > `5`",
+            "set_context": {
+                "page": "to_number(context.page || `1`) + `1`",
+                "last_page_count": "length(response.body)"
+            }
+        },
+        "max_execution_seconds": 120
+    }
+}
+
+### Save paginated plan ID
+@paginatedPlanKey = {{createPaginatedPlan.response.body.key}}
+
+### ============================================
+### STEP 7: Create a Plan with Fanout (Sub-steps)
+### ============================================
+
+# @name createFanoutPlan
+POST {{baseUrl}}/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "integration_id": "{{integrationId}}",
+    "key": "fetch-users-and-their-posts",
+    "name": "Fetch Users and Their Posts",
+    "description": "Fetches users then their posts using fanout",
+    "enabled": true,
+    "wait_seconds": 600,
+    "repeat_count": 0,
+    "plan_definition": {
+        "step": {
+            "url": "{{ config.base_url }}/users",
+            "method": "GET",
+            "timeout_seconds": 30,
+            "iterate_over": "response.body",
+            "concurrency": 5,
+            "sub_steps": [
+                {
+                    "url": "{{ config.base_url }}/posts?userId={{ item.id }}",
+                    "method": "GET",
+                    "timeout_seconds": 30,
+                    "set_context": {
+                        "user_{{ item.id }}_posts": "length(response.body)"
+                    }
+                }
+            ]
+        },
+        "max_execution_seconds": 180
+    }
+}
+
+### Save fanout plan ID
+@fanoutPlanKey = {{createFanoutPlan.response.body.key}}
+
+### ============================================
+### STEP 8: Create a Plan with Rate Limiting
+### ============================================
+
+# @name createRateLimitedPlan
+POST {{baseUrl}}/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "integration_id": "{{integrationId}}",
+    "key": "rate-limited-api-fetch",
+    "name": "Rate Limited API Fetch",
+    "description": "Plan with rate limiting configured",
+    "enabled": true,
+    "wait_seconds": 60,
+    "repeat_count": 0,
+    "plan_definition": {
+        "step": {
+            "url": "{{ config.base_url }}/posts",
+            "method": "GET",
+            "timeout_seconds": 30
+        },
+        "rate_limits": [
+            {
+                "name": "global_limit",
+                "requests": 10,
+                "window_secs": 60,
+                "scope": "global"
+            },
+            {
+                "name": "per_config_limit",
+                "requests": 5,
+                "window_secs": 10,
+                "scope": "per_config"
+            }
+        ],
+        "max_execution_seconds": 60
+    }
+}
+
+### Save rate limited plan ID
+@rateLimitedPlanKey = {{createRateLimitedPlan.response.body.key}}
+
+### ============================================
+### STEP 9: Trigger Plan Execution (Manual)
+### ============================================
+
+### Trigger the simple plan
+# @name triggerSimplePlan
+POST {{baseUrl}}/plans/{{simplePlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "config_id": "{{configId}}"
+}
+
+### Trigger the paginated plan
+# @name triggerPaginatedPlan
+POST {{baseUrl}}/plans/{{paginatedPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "config_id": "{{configId}}"
+}
+
+### Trigger the fanout plan
+# @name triggerFanoutPlan
+POST {{baseUrl}}/plans/{{fanoutPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+{
+    "config_id": "{{configId}}"
+}
+
+### ============================================
+### STEP 10: Check Execution Status
+### ============================================
+
+### List all executions for the simple plan
+GET {{baseUrl}}/executions?plan_key={{simplePlanKey}}
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+### Get specific execution details (use execution ID from trigger response)
+# GET {{baseUrl}}/executions/{{executionId}}
+# Content-Type: application/json
+# X-Tenant-ID: {{tenantId}}
+
+### ============================================
+### STEP 11: Check Plan Statistics
+### ============================================
+
+### Get statistics for a plan
+GET {{baseUrl}}/statistics/{{simplePlanKey}}/{{configId}}
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+### ============================================
+### UTILITY: List All Resources
+### ============================================
+
+### List integrations
+GET {{baseUrl}}/integrations
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+### List configs
+GET {{baseUrl}}/configs?integration_id={{integrationId}}
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+
+### List plans
+GET {{baseUrl}}/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+

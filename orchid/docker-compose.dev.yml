@@ -1,0 +1,106 @@
+services:
+  coordinator:
+    image: citusdata/citus:latest
+    environment:
+      POSTGRES_USER: ${DB_USER_NAME:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-orchid}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - coordinator-data:/var/lib/postgresql/data
+      - ./citus-init:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c shared_preload_libraries=citus
+      -c citus.log_distributed_ddl_commands=on
+
+  worker:
+    image: citusdata/citus:latest
+    environment:
+      POSTGRES_USER: ${DB_USER_NAME:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-orchid}
+    volumes:
+      - worker-data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_preload_libraries=citus
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      - kafka
+
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ./:/workspace:delegated
+    env_file: .env
+    environment:
+      DB_HOST: coordinator
+      DB_USER_NAME: ${DB_USER_NAME:-user}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_NAME: ${DB_NAME:-orchid}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_RESPONSE_TOPIC: api-responses
+    command: sleep infinity
+    ports:
+      - "3001:3001"
+      - "2346:2345" # Delve debugger port for dev container
+    depends_on:
+      - coordinator
+      - worker
+      - redis
+      - kafka
+
+volumes:
+  coordinator-data:
+  worker-data:
+  redis-data:
+  zookeeper-data:
+  kafka-data:

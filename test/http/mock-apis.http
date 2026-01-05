@@ -1,0 +1,189 @@
+### =============================================================================
+### Mock API Testing - OKTA & MS Graph Mocks
+### =============================================================================
+### Start the mock server: cd mocks && go run ./cmd/...
+### Server runs on http://localhost:8090
+
+@mockUrl = http://localhost:8090
+
+### ============================================================================
+### Health Check
+### ============================================================================
+
+### Check mock server health
+GET {{mockUrl}}/health
+
+### ============================================================================
+### Mock Rate Limiting (429 Simulation)
+### ============================================================================
+### The mock server always emits rate limit headers.
+### To ENFORCE 429s, set:
+###   - X-Mock-RateLimit-Enforce: true
+###   - X-Mock-RateLimit-Limit: <N>
+###   - X-Mock-RateLimit-Window-Secs: <seconds>
+###
+### Example: limit OKTA users list to 2 requests per 30 seconds
+GET {{mockUrl}}/api/v1/users?limit=1
+Authorization: Bearer {{oktaToken}}
+X-Mock-RateLimit-Enforce: true
+X-Mock-RateLimit-Limit: 2
+X-Mock-RateLimit-Window-Secs: 30
+
+### ============================================================================
+### OKTA Authentication
+### ============================================================================
+
+### Get OKTA Access Token
+# @name oktaAuth
+POST {{mockUrl}}/oauth2/v1/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=your-client-id&client_secret=your-client-secret&scope=okta.users.read okta.groups.read
+
+###
+@oktaToken = {{oktaAuth.response.body.access_token}}
+
+### ============================================================================
+### OKTA Users
+### ============================================================================
+
+### List OKTA Users (first page)
+GET {{mockUrl}}/api/v1/users
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### List OKTA Users (with pagination)
+GET {{mockUrl}}/api/v1/users?limit=3
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### List OKTA Users (page 2)
+GET {{mockUrl}}/api/v1/users?after=okta-user-003&limit=3
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### Get Specific OKTA User
+GET {{mockUrl}}/api/v1/users/okta-user-001
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### Get User's Groups
+GET {{mockUrl}}/api/v1/users/okta-user-001/groups
+Authorization: Bearer {{oktaToken}}
+
+### ============================================================================
+### OKTA Groups
+### ============================================================================
+
+### List OKTA Groups
+GET {{mockUrl}}/api/v1/groups
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### Get Specific Group
+GET {{mockUrl}}/api/v1/groups/okta-group-001
+Authorization: Bearer {{oktaToken}}
+
+###
+
+### Get Group Members
+GET {{mockUrl}}/api/v1/groups/okta-group-001/users
+Authorization: Bearer {{oktaToken}}
+
+### ============================================================================
+### MS Graph Authentication
+### ============================================================================
+
+### Get MS Graph Access Token
+# @name msGraphAuth
+POST {{mockUrl}}/your-tenant-id/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=your-client-id&client_secret=your-client-secret&scope=https://graph.microsoft.com/.default
+
+###
+@msGraphToken = {{msGraphAuth.response.body.access_token}}
+
+### ============================================================================
+### MS Graph Users
+### ============================================================================
+
+### List MS Graph Users (first page)
+GET {{mockUrl}}/v1.0/users
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### List MS Graph Users (with pagination)
+GET {{mockUrl}}/v1.0/users?limit=3
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get Specific User
+GET {{mockUrl}}/v1.0/users/msg-user-001
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get User's Owned Devices
+GET {{mockUrl}}/v1.0/users/msg-user-001/ownedDevices
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get User's Manager
+GET {{mockUrl}}/v1.0/users/msg-user-001/manager
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get User's Group Memberships
+GET {{mockUrl}}/v1.0/users/msg-user-001/memberOf
+Authorization: Bearer {{msGraphToken}}
+
+### ============================================================================
+### MS Graph Devices
+### ============================================================================
+
+### List All Devices
+GET {{mockUrl}}/v1.0/devices
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get Specific Device
+GET {{mockUrl}}/v1.0/devices/msg-device-001
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get Device Owners (who owns this device)
+GET {{mockUrl}}/v1.0/devices/msg-device-001/registeredOwners
+Authorization: Bearer {{msGraphToken}}
+
+### ============================================================================
+### MS Graph Groups
+### ============================================================================
+
+### List All Groups
+GET {{mockUrl}}/v1.0/groups
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get Specific Group
+GET {{mockUrl}}/v1.0/groups/msg-group-001
+Authorization: Bearer {{msGraphToken}}
+
+###
+
+### Get Group Members
+GET {{mockUrl}}/v1.0/groups/msg-group-001/members
+Authorization: Bearer {{msGraphToken}}
+

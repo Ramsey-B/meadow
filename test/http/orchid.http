@@ -1,0 +1,625 @@
+### =============================================================================
+### Orchid API Testing - Plans & Executions
+### =============================================================================
+### Orchid runs on http://localhost:3001
+
+@orchidUrl = http://localhost:3001
+@tenantId = 11111111-1111-1111-1111-111111111111
+@userId = manual-test-user
+@mockUrl = http://localhost:8090
+
+### ============================================================================
+### Health & Status
+### ============================================================================
+
+### Check Orchid Health
+GET {{orchidUrl}}/api/v1/health
+
+###
+
+### Check Liveness
+GET {{orchidUrl}}/api/v1/health/live
+
+###
+
+### Check Readiness
+GET {{orchidUrl}}/api/v1/health/ready
+
+### ============================================================================
+### Integrations (API Connections)
+### ============================================================================
+
+### Create OKTA Integration
+# @name createOktaIntegration
+POST {{orchidUrl}}/api/v1/integrations
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "OKTA Mock",
+  "description": "OKTA Mock Integration (schema is integration metadata)",
+  "config_schema": {
+    "name": "OKTA Mock Config",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "base_url": { "type": "string" },
+        "client_id": { "type": "string" },
+        "client_secret": { "type": "string" },
+        "scope": { "type": "string", "description": "URL-encoded (use + for spaces)" }
+      },
+      "required": ["base_url", "client_id", "client_secret"]
+    }
+  }
+}
+
+###
+@oktaIntegrationId = {{createOktaIntegration.response.body.id}}
+
+### Create OKTA Config
+# @name createOktaConfig
+POST {{orchidUrl}}/api/v1/configs
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{oktaIntegrationId}}",
+  "name": "OKTA Mock (default)",
+  "values": {
+    "base_url": "{{mockUrl}}",
+    "client_id": "mock-client-id",
+    "client_secret": "mock-client-secret",
+    "scope": "okta.users.read+okta.groups.read"
+  },
+  "enabled": true
+}
+
+###
+@oktaConfigId = {{createOktaConfig.response.body.id}}
+
+### Create OKTA OAuth2 Client Credentials Auth Flow
+# @name createOktaAuthFlow
+POST {{orchidUrl}}/api/v1/auth-flows
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{oktaIntegrationId}}",
+  "name": "OKTA OAuth2 Client Credentials",
+  "plan_definition": {
+    "url": "{{ config.base_url }}/oauth2/v1/token",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "body": "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+  },
+  "token_path": "response.body.access_token",
+  "expires_in_path": "response.body.expires_in",
+  "header_name": "Authorization",
+  "header_format": "Bearer {token}",
+  "skew_seconds": 30
+}
+
+###
+@oktaAuthFlowId = {{createOktaAuthFlow.response.body.id}}
+
+### Create MS Graph Integration
+# @name createMsGraphIntegration
+POST {{orchidUrl}}/api/v1/integrations
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Mock",
+  "description": "MS Graph Mock Integration (schema is integration metadata)",
+  "config_schema": {
+    "name": "MS Graph Mock Config",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "base_url": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "client_id": { "type": "string" },
+        "client_secret": { "type": "string" },
+        "scope": { "type": "string", "description": "URL-encoded scope" }
+      },
+      "required": ["base_url", "tenant_id", "client_id", "client_secret", "scope"]
+    }
+  }
+}
+
+###
+@msGraphIntegrationId = {{createMsGraphIntegration.response.body.id}}
+
+### Create MS Graph Config
+# @name createMsGraphConfig
+POST {{orchidUrl}}/api/v1/configs
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "name": "MS Graph Mock (default)",
+  "values": {
+    "base_url": "{{mockUrl}}",
+    "tenant_id": "mock-tenant",
+    "client_id": "mock-client-id",
+    "client_secret": "mock-client-secret",
+    "scope": "https%3A%2F%2Fgraph.microsoft.com%2F.default"
+  },
+  "enabled": true
+}
+
+###
+@msGraphConfigId = {{createMsGraphConfig.response.body.id}}
+
+### Create MS Graph OAuth2 Client Credentials Auth Flow
+# @name createMsGraphAuthFlow
+POST {{orchidUrl}}/api/v1/auth-flows
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "name": "MS Graph OAuth2 Client Credentials",
+  "plan_definition": {
+    "url": "{{ config.base_url }}/{{ config.tenant_id }}/oauth2/v2.0/token",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "body": "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+  },
+  "token_path": "response.body.access_token",
+  "expires_in_path": "response.body.expires_in",
+  "header_name": "Authorization",
+  "header_format": "Bearer {token}",
+  "skew_seconds": 30
+}
+
+###
+@msGraphAuthFlowId = {{createMsGraphAuthFlow.response.body.id}}
+
+### List All Integrations
+GET {{orchidUrl}}/api/v1/integrations
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Plans - OKTA User Sync
+### ============================================================================
+
+### Create OKTA Users Sync Plan
+# @name createOktaUsersPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{oktaIntegrationId}}",
+  "key": "okta-users-sync",
+  "name": "OKTA Users Sync",
+  "description": "Sync users from OKTA identity provider (cursor pagination via after/limit)",
+  "enabled": true,
+  "wait_seconds": 300,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "okta-users-sync",
+    "step": {
+      "auth_flow_id": "{{oktaAuthFlowId}}",
+      "url": "{{ config.base_url }}/api/v1/users",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "params": {
+        "limit": "5",
+        "after": "{{ context.after || `\"\"` }}"
+      },
+      "while": "length(response.body) > `0`",
+      "break_when": "length(response.body) < `5`",
+      "set_context": {
+        "after": "response.body[-1].id"
+      }
+    },
+    "rate_limits": [
+      {
+        "name": "okta_dynamic",
+        "requests": 60,
+        "window_secs": 60,
+        "scope": "per_endpoint",
+        "dynamic": {
+          "remaining_header": "X-Rate-Limit-Remaining",
+          "reset_header": "X-Rate-Limit-Reset",
+          "limit_header": "X-Rate-Limit-Limit",
+          "retry_after": "Retry-After"
+        }
+      }
+    ],
+    "max_execution_seconds": 120
+  }
+}
+
+###
+@oktaUsersPlanKey = {{createOktaUsersPlan.response.body.key}}
+
+### Create OKTA Groups Sync Plan  
+# @name createOktaGroupsPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{oktaIntegrationId}}",
+  "key": "okta-groups-sync",
+  "name": "OKTA Groups + Memberships Sync",
+  "description": "Sync groups and group memberships from OKTA (fanout over groups)",
+  "enabled": true,
+  "wait_seconds": 300,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "okta-groups-sync",
+    "step": {
+      "auth_flow_id": "{{oktaAuthFlowId}}",
+      "url": "{{ config.base_url }}/api/v1/groups",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "iterate_over": "response.body",
+      "concurrency": 10,
+      "break_when": "length(response.body) < `5`",
+      "set_context": {
+        "after": "response.body[-1].id"
+      },
+      "while": "length(response.body) > `0`",
+      "sub_steps": [
+        {
+          "url": "{{ config.base_url }}/api/v1/groups/{{ item.id }}/users",
+          "method": "GET",
+          "headers": {
+            "Authorization": "{{ auth.headers.Authorization }}"
+          }
+        }
+      ]
+    },
+    "max_execution_seconds": 180
+  }
+}
+
+###
+@oktaGroupsPlanKey = {{createOktaGroupsPlan.response.body.key}}
+
+### ============================================================================
+### Plans - MS Graph Sync
+### ============================================================================
+
+###
+
+### Create MS Graph Devices Plan
+# @name createMsGraphDevicesPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "key": "msgraph-devices-sync",
+  "name": "MS Graph Devices Sync",
+  "description": "Sync devices from Microsoft Graph API",
+  "enabled": true,
+  "wait_seconds": 7200,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "msgraph-devices-sync",
+    "step": {
+      "auth_flow_id": "{{msGraphAuthFlowId}}",
+      "url": "{{ config.base_url }}/v1.0/devices",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "params": {
+        "limit": "5",
+        "after": "{{ context.after || `\"\"` }}"
+      },
+      "iterate_over": "response.body.value",
+      "while": "response.body.\"@odata.nextLink\" != null",
+      "set_context": {
+        "after": "response.body.value[-1].id"
+      }
+    },
+    "max_execution_seconds": 120
+  }
+}
+
+###
+@msGraphDevicesPlanKey = {{createMsGraphDevicesPlan.response.body.key}}
+
+### Create MS Graph Groups Plan
+# @name createMsGraphGroupsPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "key": "msgraph-groups-sync",
+  "name": "MS Graph Groups Sync",
+  "description": "Sync groups from Microsoft Graph API",
+  "enabled": true,
+  "wait_seconds": 300,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "msgraph-groups-sync",
+    "step": {
+      "auth_flow_id": "{{msGraphAuthFlowId}}",
+      "url": "{{ config.base_url }}/v1.0/groups",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "params": {
+        "limit": "5",
+        "after": "{{ context.after || `\"\"` }}"
+      },
+      "iterate_over": "response.body.value",
+      "while": "response.body.\"@odata.nextLink\" != null",
+      "set_context": {
+        "after": "response.body.value[-1].id"
+      }
+    },
+    "max_execution_seconds": 120
+  }
+}
+
+###
+@msGraphGroupsPlanKey = {{createMsGraphGroupsPlan.response.body.key}}
+
+### Create MS Graph User-Manager Relationship Plan
+# @name createMsGraphUsersPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "key": "msgraph-users-sync",
+  "name": "MS Graph Users",
+  "description": "Sync user->manager (reports_to) relationships from Microsoft Graph (fanout over users)",
+  "enabled": true,
+  "wait_seconds": 300,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "msgraph-users-sync",
+    "step": {
+      "auth_flow_id": "{{msGraphAuthFlowId}}",
+      "url": "{{ config.base_url }}/v1.0/users",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "params": {
+        "limit": "5",
+        "after": "{{ context.after || `\"\"` }}"
+      },
+      "iterate_over": "response.body.value",
+      "concurrency": 10,
+      "sub_steps": [
+        {
+          "id": "manager",
+          "url": "{{ config.base_url }}/v1.0/users/{{ item.id }}/manager",
+          "method": "GET",
+          "abort_on": [401, 403],
+          "retry_when": "response.status_code == `429`",
+          "headers": {
+            "Authorization": "{{ auth.headers.Authorization }}"
+          }
+        },
+        {
+          "id": "owned_devices",
+          "url": "{{ config.base_url }}/v1.0/users/{{ item.id }}/ownedDevices",
+          "method": "GET",
+          "abort_on": [401, 403],
+          "retry_when": "response.status_code == `429`",
+          "headers": {
+            "Authorization": "{{ auth.headers.Authorization }}"
+          }
+        }
+      ],
+      "while": "response.body.\"@odata.nextLink\" != null",
+      "set_context": {
+        "after": "response.body.value[-1].id"
+      }
+    },
+    "max_execution_seconds": 180
+  }
+}
+
+###
+@msGraphUsersPlanKey = {{createMsGraphUsersPlan.response.body.key}}
+
+### Create MS Graph Group Membership Plan
+# @name createGroupMembershipPlan
+POST {{orchidUrl}}/api/v1/plans
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration_id": "{{msGraphIntegrationId}}",
+  "key": "msgraph-group-memberships",
+  "name": "MS Graph Group Members",
+  "description": "Sync group->member relationships from Microsoft Graph (fanout over groups)",
+  "enabled": true,
+  "wait_seconds": 300,
+  "repeat_count": 0,
+  "plan_definition": {
+    "key": "msgraph-group-memberships",
+    "step": {
+      "auth_flow_id": "{{msGraphAuthFlowId}}",
+      "url": "{{ config.base_url }}/v1.0/groups",
+      "method": "GET",
+      "abort_on": [401, 403],
+      "retry_when": "response.status_code == `429`",
+      "headers": {
+        "Authorization": "{{ auth.headers.Authorization }}"
+      },
+      "params": {
+        "limit": "5",
+        "after": "{{ context.after || `\"\"` }}"
+      },
+      "iterate_over": "response.body.value",
+      "concurrency": 5,
+      "sub_steps": [
+        {
+          "id": "members",
+          "url": "{{ config.base_url }}/v1.0/groups/{{ item.id }}/members",
+          "method": "GET",
+          "abort_on": [401, 403],
+          "retry_when": "response.status_code == `429`",
+          "headers": {
+            "Authorization": "{{ auth.headers.Authorization }}"
+          }
+        }
+      ],
+      "while": "response.body.\"@odata.nextLink\" != null",
+      "set_context": {
+        "after": "response.body.value[-1].id"
+      }
+    },
+    "max_execution_seconds": 180
+  }
+}
+
+###
+@groupMembershipPlanKey = {{createGroupMembershipPlan.response.body.key}}
+
+### ============================================================================
+### Plan Management
+### ============================================================================
+
+### List All Plans
+GET {{orchidUrl}}/api/v1/plans?enabled=true
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Get Specific Plan
+GET {{orchidUrl}}/api/v1/plans/{{oktaUsersPlanKey}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Trigger Plan Executions
+### ============================================================================
+
+### Trigger OKTA Users Sync
+POST {{orchidUrl}}/api/v1/plans/{{oktaUsersPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{oktaConfigId}}"
+}
+
+### Trigger OKTA Groups Sync
+POST {{orchidUrl}}/api/v1/plans/{{oktaGroupsPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{oktaConfigId}}"
+}
+
+###
+
+### Trigger MS Graph Users Sync
+POST {{orchidUrl}}/api/v1/plans/{{msGraphUsersPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{msGraphConfigId}}"
+}
+
+### Trigger MS Graph Groups Sync
+POST {{orchidUrl}}/api/v1/plans/{{msGraphGroupsPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{msGraphConfigId}}"
+}
+
+###
+
+### Trigger MS Graph Devices Sync
+POST {{orchidUrl}}/api/v1/plans/{{msGraphDevicesPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{msGraphConfigId}}"
+}
+
+###
+
+###
+
+###
+
+### Trigger Group Membership Sync
+POST {{orchidUrl}}/api/v1/plans/{{groupMembershipPlanKey}}/trigger
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "config_id": "{{msGraphConfigId}}"
+}
+
+### ============================================================================
+### Execution History
+### ============================================================================
+
+### List Plan Executions
+GET {{orchidUrl}}/api/v1/executions?plan_key={{oktaUsersPlanKey}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### List Plan Executions (again)
+GET {{orchidUrl}}/api/v1/executions?plan_key={{oktaUsersPlanKey}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+

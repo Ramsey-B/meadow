@@ -1,0 +1,26 @@
+{
+  "name": "ivy-postgres-ivy",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "user",
+    "database.password": "password",
+    "database.dbname": "ivy",
+    "database.server.name": "ivy",
+    "topic.prefix": "ivy",
+    "plugin.name": "pgoutput",
+    "schema.include.list": "public",
+    "table.include.list": "public.staged_entities,public.staged_relationships,public.merged_entities,public.merged_relationships",
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false",
+    "slot.name": "ivy_slot",
+    "publication.name": "dbz_publication",
+    "publication.autocreate.mode": "disabled",
+    "decimal.handling.mode": "string",
+    "time.precision.mode": "connect"
+  }
+}
+
+

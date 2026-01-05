@@ -1,0 +1,901 @@
+### =============================================================================
+### Ivy API Testing - Entity Resolution & Graph
+### =============================================================================
+### Ivy runs on http://localhost:3002
+
+@ivyUrl = http://localhost:3002
+@tenantId = 11111111-1111-1111-1111-111111111111
+@userId = manual-test-user
+
+### ============================================================================
+### Health & Status
+### ============================================================================
+
+### Check Ivy Health
+GET {{ivyUrl}}/api/v1/health
+
+###
+
+### Check Liveness
+GET {{ivyUrl}}/api/v1/health/live
+
+###
+
+### Check Readiness
+GET {{ivyUrl}}/api/v1/health/ready
+
+###
+
+### Get Status
+GET {{ivyUrl}}/api/v1/status
+
+### ============================================================================
+### Entity Types (Schema Definitions)
+### ============================================================================
+
+### Create Person Entity Type
+# @name createPersonEntityType
+POST {{ivyUrl}}/api/v1/entity-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "person",
+  "name": "Person",
+  "description": "A person entity representing an employee or user",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "email": {
+        "type": "string",
+        "format": "email",
+        "description": "Primary email address",
+        "merge_strategy": "most_recent"
+      },
+      "first_name": {
+        "type": "string",
+        "description": "First/given name",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "last_name": {
+        "type": "string",
+        "description": "Last/family name",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "full_name": {
+        "type": "string",
+        "description": "Full display name",
+        "merge_strategy": "most_recent"
+      },
+      "phone": {
+        "type": "string",
+        "description": "Mobile phone number",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "department": {
+        "type": "string",
+        "description": "Department name",
+        "merge_strategy": "most_recent"
+      },
+      "job_title": {
+        "type": "string",
+        "description": "Job title",
+        "merge_strategy": "most_recent"
+      },
+      "is_active": {
+        "type": "boolean",
+        "description": "Whether the person is active",
+        "merge_strategy": "prefer_non_empty"
+      }
+    },
+    "required": ["email"]
+  }
+}
+
+###
+@personEntityTypeId = {{createPersonEntityType.response.body.id}}
+
+### Create Device Entity Type
+# @name createDeviceEntityType
+POST {{ivyUrl}}/api/v1/entity-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "device",
+  "name": "Device",
+  "description": "A managed device",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Device display name",
+        "merge_strategy": "most_recent"
+      },
+      "device_id": {
+        "type": "string",
+        "description": "Unique device identifier",
+        "merge_strategy": "most_recent"
+      },
+      "serial_number": {
+        "type": "string",
+        "description": "Device serial number (hardware identifier)",
+        "merge_strategy": "most_recent"
+      },
+      "operating_system": {
+        "type": "string",
+        "description": "Operating system name",
+        "merge_strategy": "most_recent"
+      },
+      "os_version": {
+        "type": "string",
+        "description": "Operating system version",
+        "merge_strategy": "most_recent"
+      },
+      "is_managed": {
+        "type": "boolean",
+        "description": "Whether the device is managed",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "is_compliant": {
+        "type": "boolean",
+        "description": "Whether the device is compliant",
+        "merge_strategy": "prefer_non_empty"
+      }
+    },
+    "required": ["device_id"]
+  }
+}
+
+###
+@deviceEntityTypeId = {{createDeviceEntityType.response.body.id}}
+
+### Create Group Entity Type
+# @name createGroupEntityType
+POST {{ivyUrl}}/api/v1/entity-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "group",
+  "name": "Group",
+  "description": "A group or team",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Group name",
+        "merge_strategy": "most_recent"
+      },
+      "description": {
+        "type": "string",
+        "description": "Group description",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "group_type": {
+        "type": "string",
+        "enum": ["security", "distribution", "unified", "dynamic"],
+        "description": "Type of group",
+        "merge_strategy": "most_recent"
+      },
+      "email": {
+        "type": "string",
+        "format": "email",
+        "description": "Group email address",
+        "merge_strategy": "prefer_non_empty"
+      }
+    },
+    "required": ["name"]
+  }
+}
+
+###
+@groupEntityTypeId = {{createGroupEntityType.response.body.id}}
+
+### List All Entity Types
+GET {{ivyUrl}}/api/v1/entity-types
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Get Entity Type Schema (for Lotus integration)
+GET {{ivyUrl}}/api/v1/entity-types/person/schema
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Relationship Types
+### ============================================================================
+
+### Create "Owns" Relationship (Person -> Device)
+# @name createOwnsRelationship
+POST {{ivyUrl}}/api/v1/relationship-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "owns",
+  "name": "Owns",
+  "description": "Person owns a device",
+  "from_entity_type": "person",
+  "to_entity_type": "device",
+  "cardinality": "one_to_many",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "assigned_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the device was assigned",
+        "merge_strategy": "most_recent"
+      },
+      "is_primary": {
+        "type": "boolean",
+        "description": "Whether this is the primary device",
+        "merge_strategy": "prefer_non_empty"
+      }
+    }
+  }
+}
+
+###
+
+### Create "Member Of" Relationship (Person -> Group)
+# @name createMemberOfRelationship
+POST {{ivyUrl}}/api/v1/relationship-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "member_of",
+  "name": "Member Of",
+  "description": "Person is a member of a group",
+  "from_entity_type": "person",
+  "to_entity_type": "group",
+  "cardinality": "many_to_many",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "role": {
+        "type": "string",
+        "enum": ["member", "owner", "admin"],
+        "description": "Role in the group",
+        "merge_strategy": "prefer_non_empty"
+      },
+      "joined_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When they joined the group",
+        "merge_strategy": "most_recent"
+      }
+    }
+  }
+}
+
+###
+
+### Create "Reports To" Relationship (Person -> Person)
+# @name createReportsToRelationship
+POST {{ivyUrl}}/api/v1/relationship-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "reports_to",
+  "name": "Reports To",
+  "description": "Person reports to another person (manager)",
+  "from_entity_type": "person",
+  "to_entity_type": "person",
+  "cardinality": "many_to_one",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "effective_date": {
+        "type": "string",
+        "format": "date-time",
+        "merge_strategy": "most_recent"
+      }
+    }
+  }
+}
+
+###
+
+### Create "Has Access To" Relationship (Person -> Device) - for criteria-based
+# @name createHasAccessToRelationship
+POST {{ivyUrl}}/api/v1/relationship-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "has_access_to",
+  "name": "Has Access To",
+  "description": "Person has access to a device (often from policy/criteria)",
+  "from_entity_type": "person",
+  "to_entity_type": "device",
+  "cardinality": "many_to_many",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "policy_id": {
+        "type": "string",
+        "description": "Policy that granted access",
+        "merge_strategy": "most_recent"
+      },
+      "access_level": {
+        "type": "string",
+        "enum": ["read", "write", "admin"],
+        "merge_strategy": "prefer_non_empty"
+      }
+    }
+  }
+}
+
+###
+
+### Create "Can Manage" Relationship (Person -> Device) - for criteria-based
+# @name createCanManageRelationship
+POST {{ivyUrl}}/api/v1/relationship-types
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "key": "can_manage",
+  "name": "Can Manage",
+  "description": "Person can manage a device (admin access from policy)",
+  "from_entity_type": "person",
+  "to_entity_type": "device",
+  "cardinality": "many_to_many",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "admin_role": {
+        "type": "string",
+        "description": "Admin role that grants management",
+        "merge_strategy": "most_recent"
+      }
+    }
+  }
+}
+
+###
+
+### List All Relationship Types
+GET {{ivyUrl}}/api/v1/relationship-types
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Match Rules
+### ============================================================================
+
+### ============================================================================
+### Match Rules - Person
+### ============================================================================
+
+### Create Person Email Match Rule (Exact)
+# @name createEmailMatchRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "person",
+  "name": "Exact Email Match",
+  "description": "Match persons with exactly the same email address",
+  "priority": 100,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "email",
+      "match_type": "exact",
+      "weight": 1.0,
+      "required": true,
+      "normalizer": "lowercase",
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+@emailMatchRuleId = {{createEmailMatchRule.response.body.id}}
+
+### Create Person Fuzzy Name Match Rule
+# @name createFuzzyNameMatchRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "person",
+  "name": "Fuzzy Name + Phone Match",
+  "description": "Match persons with similar names and matching phone",
+  "priority": 50,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "first_name",
+      "match_type": "fuzzy",
+      "weight": 0.3,
+      "threshold": 0.8,
+      "case_sensitive": false
+    },
+    {
+      "field": "last_name",
+      "match_type": "fuzzy",
+      "weight": 0.3,
+      "threshold": 0.8,
+      "case_sensitive": false
+    },
+    {
+      "field": "phone",
+      "match_type": "exact",
+      "weight": 0.4,
+      "required": true,
+      "normalizer": "phone",
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+@fuzzyNameMatchRuleId = {{createFuzzyNameMatchRule.response.body.id}}
+
+### Create "No Merge" Blocking Rule
+# @name createNoMergeRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "person",
+  "name": "Different Department Block",
+  "description": "Don't auto-merge if departments are significantly different",
+  "priority": 200,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "department",
+      "match_type": "exact",
+      "weight": 1.0,
+      "required": true,
+      "invert": true,
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+
+### List Match Rules
+GET {{ivyUrl}}/api/v1/match-rules?entity_type=person
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Match Rules - Device
+### ============================================================================
+
+### Create Device ID Match Rule (Exact)
+# @name createDeviceIdMatchRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "device",
+  "name": "Exact Device ID Match",
+  "description": "Match devices with exactly the same device_id",
+  "priority": 100,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "device_id",
+      "match_type": "exact",
+      "weight": 1.0,
+      "required": true,
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+@deviceIdMatchRuleId = {{createDeviceIdMatchRule.response.body.id}}
+
+### Create Device Serial Number Match Rule (Exact)
+# @name createDeviceSerialMatchRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "device",
+  "name": "Exact Serial Number Match",
+  "description": "Match devices with exactly the same serial_number (best identifier when present)",
+  "priority": 110,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "serial_number",
+      "match_type": "exact",
+      "weight": 1.0,
+      "required": true,
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+@deviceSerialMatchRuleId = {{createDeviceSerialMatchRule.response.body.id}}
+
+### List Device Match Rules
+GET {{ivyUrl}}/api/v1/match-rules?entity_type=device
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Match Rules - Group
+### ============================================================================
+
+### Create Group Name Match Rule (Exact)
+# @name createGroupNameMatchRule
+POST {{ivyUrl}}/api/v1/match-rules
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "group",
+  "name": "Exact Group Name Match",
+  "description": "Match groups with the same name (case-insensitive via lowercase normalizer)",
+  "priority": 100,
+  "is_active": true,
+  "score_weight": 1.0,
+  "conditions": [
+    {
+      "field": "name",
+      "match_type": "exact",
+      "weight": 1.0,
+      "required": true,
+      "normalizer": "lowercase",
+      "case_sensitive": false
+    }
+  ]
+}
+
+###
+@groupNameMatchRuleId = {{createGroupNameMatchRule.response.body.id}}
+
+### List Group Match Rules
+GET {{ivyUrl}}/api/v1/match-rules?entity_type=group
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Deletion Strategies
+### ============================================================================
+
+### Create Execution-Based Deletion Strategy
+# @name createExecutionDeletionStrategy
+POST {{ivyUrl}}/api/v1/deletion-strategies
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "integration": "okta",
+  "entity_type": "person",
+  "strategy_type": "execution_based",
+  "grace_period_hours": 24,
+  "retention_days": 90,
+  "enabled": true
+}
+
+###
+
+### List Deletion Strategies
+GET {{ivyUrl}}/api/v1/deletion-strategies
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Match Candidates (Review Queue)
+### ============================================================================
+
+### List Pending Match Candidates
+GET {{ivyUrl}}/api/v1/match-candidates?status=pending
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### List All Match Candidates for Person
+GET {{ivyUrl}}/api/v1/match-candidates?entity_type=person
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Approve a Match Candidate (merge the entities)
+# Replace entity IDs with actual values from the list above
+POST {{ivyUrl}}/api/v1/match-candidates/approve?entity_a_id=ENTITY_A_ID&entity_b_id=ENTITY_B_ID
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Reject a Match Candidate
+POST {{ivyUrl}}/api/v1/match-candidates/reject?entity_a_id=ENTITY_A_ID&entity_b_id=ENTITY_B_ID
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Defer a Match Candidate
+POST {{ivyUrl}}/api/v1/match-candidates/defer?entity_a_id=ENTITY_A_ID&entity_b_id=ENTITY_B_ID
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Entities (View Merged/Staged Data)
+### ============================================================================
+
+### Get Merged Entity by ID
+GET {{ivyUrl}}/api/v1/entities/MERGED_ENTITY_ID
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Get Source Entities for a Merged Entity
+GET {{ivyUrl}}/api/v1/entities/MERGED_ENTITY_ID/sources
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Get Entity Relationships
+GET {{ivyUrl}}/api/v1/entities/MERGED_ENTITY_ID/relationships
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Graph Queries (OpenCypher)
+### ============================================================================
+
+### Find All Persons
+POST {{ivyUrl}}/api/v1/graph/query
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "query": "MATCH (p:person) WHERE p.tenant_id = $tenant_id RETURN p LIMIT 10",
+  "params": {
+    "tenant_id": "{{tenantId}}"
+  }
+}
+
+###
+
+### Find Person by Email
+POST {{ivyUrl}}/api/v1/graph/query
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "query": "MATCH (p:person {tenant_id: $tenant_id}) WHERE p.email = $email RETURN p",
+  "params": {
+    "tenant_id": "{{tenantId}}",
+    "email": "john.doe@acme.com"
+  }
+}
+
+###
+
+### Find Person's Devices
+POST {{ivyUrl}}/api/v1/graph/query
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "query": "MATCH (p:person {tenant_id: $tenant_id, email: $email})-[:owns]->(d:device) RETURN p, d",
+  "params": {
+    "tenant_id": "{{tenantId}}",
+    "email": "john.doe@acme.com"
+  }
+}
+
+###
+
+### Find Person's Manager Chain
+POST {{ivyUrl}}/api/v1/graph/query
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "query": "MATCH path = (p:person {tenant_id: $tenant_id, email: $email})-[:reports_to*1..5]->(m:person) RETURN path",
+  "params": {
+    "tenant_id": "{{tenantId}}",
+    "email": "john.doe@acme.com"
+  }
+}
+
+###
+
+### Find Group Members
+POST {{ivyUrl}}/api/v1/graph/query
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "query": "MATCH (p:person {tenant_id: $tenant_id})-[:member_of]->(g:group {name: $group_name}) RETURN p, g",
+  "params": {
+    "tenant_id": "{{tenantId}}",
+    "group_name": "Engineering"
+  }
+}
+
+###
+
+### Find Shortest Path Between Two People
+POST {{ivyUrl}}/api/v1/graph/shortest-path
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "start_node": {
+    "label": "person",
+    "property": "email",
+    "value": "john.doe@acme.com"
+  },
+  "end_node": {
+    "label": "person",
+    "property": "email",
+    "value": "fiona.chen@acme.com"
+  },
+  "max_hops": 5
+}
+
+###
+
+### Find Neighbors of a Person
+POST {{ivyUrl}}/api/v1/graph/neighbors
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "node": {
+    "label": "person",
+    "property": "email",
+    "value": "john.doe@acme.com"
+  },
+  "direction": "both",
+  "max_depth": 2
+}
+
+### ============================================================================
+### Criteria-Based Relationships - Example Messages
+### ============================================================================
+### These examples show the message format for criteria-based relationships.
+### Messages arrive on the mapped-data Kafka topic from Lotus.
+###
+### Direct Relationship (source_id to source_id):
+### {
+###   "_relationship_type": "owns",
+###   "_from_entity_type": "person",
+###   "_from_source_id": "okta-user-001",
+###   "_from_integration": "okta",          # optional, defaults to message integration
+###   "_to_entity_type": "device",
+###   "_to_source_id": "msg-device-001",
+###   "_to_integration": "msgraph"          # optional, defaults to message integration
+### }
+###
+### Criteria-Based Relationship (source_id to criteria):
+### {
+###   "_relationship_type": "has_access_to",
+###   "_from_entity_type": "person",
+###   "_from_source_id": "okta-user-001",
+###   "_from_integration": "okta",
+###   "_to_entity_type": "device",
+###   "_to_integration": "msgraph",         # REQUIRED for criteria
+###   "_to_criteria": {
+###     "operating_system": "Windows",      # Simple equality
+###     "is_compliant": true
+###   },
+###   "policy_id": "policy-123"             # Additional relationship properties
+### }
+###
+### Criteria with operators:
+### {
+###   "_relationship_type": "can_manage",
+###   "_from_entity_type": "person", 
+###   "_from_source_id": "okta-admin-001",
+###   "_from_integration": "okta",
+###   "_to_entity_type": "device",
+###   "_to_integration": "msgraph",
+###   "_to_criteria": {
+###     "tags": {"$contains": "FISMA"},     # Array contains
+###     "risk_score": {"$gte": 80},         # Numeric comparison
+###     "status": {"$ne": "retired"}        # Not equal
+###   }
+### }
+###
+### How it works:
+### 1. When a criteria relationship arrives, Ivy stores the criteria definition
+### 2. Ivy evaluates all existing entities matching to_entity_type + to_integration
+### 3. For each matching entity, a staged_relationship is created
+### 4. When new entities arrive, they're checked against existing criteria
+### 5. All staged_relationships flow through normal merge pipeline
+### 6. Deletion strategies work the same as direct relationships
+
+### ============================================================================
+### Validation
+### ============================================================================
+
+### Validate Entity Data Against Schema
+POST {{ivyUrl}}/api/v1/validate
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "person",
+  "data": {
+    "email": "test@example.com",
+    "first_name": "Test",
+    "last_name": "User",
+    "department": "Engineering"
+  }
+}
+
+###
+
+### Validate Invalid Entity Data
+POST {{ivyUrl}}/api/v1/validate
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "entity_type": "person",
+  "data": {
+    "first_name": "Missing Email User"
+  }
+}
+
+
+{"email": "edward.kim@acme.com", "phone": "+1-555-0104", "full_name": "Edward Kim", "is_active": true, "job_title": "DevOps Engineer", "last_name": "Johnson", "_source_id": "msg-user-004", "department": "Engineering", "first_name": "Alice", "_entity_type": "person", "_integration": "msgraph"}
+
+{"email": "alice.johnson@acme.com", "phone": "+1-555-0104", "full_name": "Alice Johnson", "job_title": "Tech Lead", "last_name": "Johnson", "_source_id": "msg-user-004", "department": "Engineering", "first_name": "Alice", "_entity_type": "person", "_integration": "msgraph"}
+{"email": "john.doe@acme.com", "phone": "+1-555-0101", "full_name": "John Doe", "job_title": "Senior Developer", "last_name": "Doe", "_source_id": "msg-user-001", "department": "Engineering", "first_name": "John", "_entity_type": "person", "_integration": "msgraph"}
+{"email": "edward.kim@acme.com", "phone": "+1-555-0107", "full_name": "Edward Kim", "job_title": "DevOps Engineer", "last_name": "Kim", "_source_id": "msg-user-007", "department": "Engineering", "first_name": "Edward", "_entity_type": "person", "_integration": "msgraph"}
+{"email": "john.doe@acme.com", "phone": "+1-555-0101", "full_name": "John Doe", "is_active": true, "job_title": "Senior Developer", "last_name": "Doe", "_source_id": "okta-user-001", "department": "Engineering", "first_name": "John", "_entity_type": "person", "_integration": "okta"}
+{"email": "alice.johnson@acme.com", "phone": "+1-555-0104", "full_name": "Alice Johnson", "is_active": true, "job_title": "Tech Lead", "last_name": "Johnson", "_source_id": "okta  -user-004", "department": "Engineering", "first_name": "Alice", "_entity_type": "person", "_integration": "okta"}

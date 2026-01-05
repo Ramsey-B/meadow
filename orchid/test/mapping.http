@@ -1,0 +1,187 @@
+### Create a new mapping
+
+POST http://localhost:3000/api/v1.0/mapping/execute
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJGdkp6Sk0xbF94RFJVTmI1RWM3aDBlMDB0RFpwemxCdWYxWFJsTG01UlZBIn0.eyJleHAiOjE3NDY1ODc4MDEsImlhdCI6MTc0NjU4NzUwMSwiYXV0aF90aW1lIjoxNzQ2NTg3NTAwLCJqdGkiOiJvbnJ0YWM6OTIyZGUwMTEtN2MwZi00YzczLWIzYTUtMGJmOTdlNjQ5MDRkIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL3JlYWxtcy9EZXYiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiMjQyZjVhY2UtODllOS00M2NkLWI0ZTYtOWQ5MzlhOGI3NzQ1IiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiZGV2Iiwic2lkIjoiMTNjM2QyOTYtNzk0Ni00MjFmLWI2NWItN2MxZGE5Yzg2Y2Y4IiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vbG9jYWxob3N0OjMwMDAiXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtZGV2Iiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoib3BlbmlkIHByb2ZpbGUgZW1haWwiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJhbXNleSBCbGFuZCIsInByZWZlcnJlZF91c2VybmFtZSI6InJhbXNleSIsImdpdmVuX25hbWUiOiJSYW1zZXkiLCJmYW1pbHlfbmFtZSI6IkJsYW5kIiwiZW1haWwiOiJ0ZXN0QHRlc3QuY29tIn0.it208DNr_yPEItq2mA2gnRp2enmvSWCER3tK062c8Iyz0wMMnd83hMEAQX3TNtRXsevy0hl2JGZ3hqD_48349ubRQdE819dcpT6a_cn2tdfZOFKxL18uxlKQzZthIdUdonpa_UIgpcgtnVSHJ6SQJ0ND-_Fo8R8drbel9jX2Cz5wgyr2fW-EQQrRj0IQAwUHPpzfmOfH5m1nqg_sYYfabs4S08BPGy4IVjZTFPrK37n8Z_qEF9MfpQzC0vDBzc7lK1wJf3t4MScSu-sULFkVAoT9FXKNJQpTsqq6HJbvv-Ib14GHtpkM1f4lT8Qhfdf4h2ouAt7XzfC3alVycyA4kg
+
+{
+    "id": "test mapping",
+    "name": "my test mapping",
+    "version": 1,
+    "source_raw": {
+        "source_field_1": "My Source Field 1",
+        "source_field_2": 23,
+        "source_field_3": 10,
+        "source_field_4": ["test"]
+    },
+    "source_fields": [
+        {
+            "id": "source_field_1",
+            "name": "My Source Field 1",
+            "path": "source_field_1",
+            "type": "string"
+        },
+        {
+            "id": "source_field_2",
+            "name": "My Source Field 2",
+            "path": "source_field_2",
+            "type": "number"
+        },
+        {
+            "id": "source_field_3",
+            "name": "My Source Field 3",
+            "path": "source_field_3",
+            "type": "number"
+        },
+        {
+            "id": "source_field_4",
+            "name": "My Source Field 4",
+            "path": "source_field_4",
+            "type": "array",
+            "items": {
+                "id": "source_field_4_items",
+                "name": "My Source Field 4",
+                "path": "source_field_4",
+                "type": "string"
+            }
+        }
+    ],
+    "target_fields": [
+        {
+            "id": "target_field_1",
+            "name": "My target Field 1",
+            "path": "target_field_1",
+            "type": "string"
+        },
+        {
+            "id": "target_field_2",
+            "name": "My target field 2",
+            "path": "target_field_2",
+            "type": "string"
+        },
+        {
+            "id": "target_field_3",
+            "name": "My target field 3",
+            "path": "target_field_3",
+            "type": "number"
+        },
+        {
+            "id": "target_field_4",
+            "name": "My target field 4",
+            "path": "target_field_4",
+            "type": "array",
+            "items": {
+                "id": "target_field_4_items",
+                "name": "My Target Field 4",
+                "path": "source_target_4",
+                "type": "string"
+            }
+        }
+    ],
+    "steps": [
+        {
+            "id": "source_field_2_to_string",
+            "key": "transformer",
+            "action": {
+                "key": "number_to_string"
+            }
+        },
+        {
+            "id": "source_field_2_add",
+            "key": "transformer",
+            "action": {
+                "key": "number_add"
+            }
+        },
+        {
+            "id": "string_array_push",
+            "key": "transformer",
+            "action": {
+               "key": "array_push"
+            }
+        }
+    ],
+    "links": [
+        {
+            "id": "source_field_1-target_field_1",
+            "from": {
+                "field_id": "source_field_1"
+            },
+            "to": {
+                "field_id": "target_field_1"
+            }
+        },
+        {
+            "id": "source_field_2-source_field_2_add",
+            "from": {
+                "field_id": "source_field_2"
+            },
+            "to": {
+                "step_id": "source_field_2_add"
+            }
+        },
+        {
+            "id": "source_field_3-source_field_2_add",
+            "from": {
+                "field_id": "source_field_3"
+            },
+            "to": {
+                "step_id": "source_field_2_add"
+            }
+        },
+        {
+            "id": "source_field_2_add-source_field_2_to_string",
+            "from": {
+                "step_id": "source_field_2_add"
+            },
+            "to": {
+                "step_id": "source_field_2_to_string"
+            }
+        },
+        {
+            "id": "source_field_2_to_string-target_field_2",
+            "from": {
+                "step_id": "source_field_2_to_string"
+            },
+            "to": {
+                "field_id": "target_field_2"
+            }
+        },
+        {
+            "id": "source_field_2_add-target_field_3",
+            "from": {
+                "step_id": "source_field_2_add"
+            },
+            "to": {
+                "field_id": "target_field_3"
+            }
+        },
+        {
+            "id": "source_field_2_to_string-target_field_2",
+            "from": {
+                "step_id": "source_field_2_to_string"
+            },
+            "to": {
+                "step_id": "string_array_push"
+            }
+        },
+        {
+            "id": "source_field_4_to_string_array_push",
+            "from": {
+                "field_id": "source_field_4"
+            },
+            "to": {
+                "step_id": "string_array_push"
+            }
+        },
+        {
+            "id": "string_array_push_to_target_field_4",
+            "from": {
+                "step_id": "string_array_push"
+            },
+            "to": {
+                "field_id": "target_field_4"
+            }
+        }
+    ]
+}

@@ -1,0 +1,874 @@
+### =============================================================================
+### Lotus API Testing - Mappings & Bindings
+### =============================================================================
+### Lotus runs on http://localhost:3000
+
+@lotusUrl = http://localhost:3000
+@tenantId = 11111111-1111-1111-1111-111111111111
+@userId = manual-test-user
+
+### ============================================================================
+### Health & Status
+### ============================================================================
+
+### Check Lotus Health
+GET {{lotusUrl}}/api/v1/health
+
+###
+
+### Check Liveness  
+GET {{lotusUrl}}/api/v1/health/live
+
+###
+
+### Check Readiness
+GET {{lotusUrl}}/api/v1/health/ready
+
+### ============================================================================
+### Actions (Available Transformations)
+### ============================================================================
+
+### List All Available Actions
+GET {{lotusUrl}}/api/v1/actions
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Mapping Definitions - OKTA User to Person Entity
+### ============================================================================
+
+### Create OKTA User -> Person Mapping
+# @name createOktaUserMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "OKTA User to Person",
+  "key": "okta-user-to-person",
+  "description": "Maps OKTA user data to Person entity for Ivy",
+  "source_fields": [
+    {"id": "src_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_email", "path": "response_body.profile.email", "type": "string"},
+    {"id": "src_first_name", "path": "response_body.profile.firstName", "type": "string"},
+    {"id": "src_last_name", "path": "response_body.profile.lastName", "type": "string"},
+    {"id": "src_phone", "path": "response_body.profile.mobilePhone", "type": "string"},
+    {"id": "src_department", "path": "response_body.profile.department", "type": "string"},
+    {"id": "src_title", "path": "response_body.profile.title", "type": "string"},
+    {"id": "src_status", "path": "response_body.status", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_source_id", "path": "_source_id", "type": "string"},
+    {"id": "tgt_integration", "path": "_integration", "type": "string"},
+    {"id": "tgt_entity_type", "path": "_entity_type", "type": "string"},
+    {"id": "tgt_email", "path": "email", "type": "string"},
+    {"id": "tgt_first_name", "path": "first_name", "type": "string"},
+    {"id": "tgt_last_name", "path": "last_name", "type": "string"},
+    {"id": "tgt_full_name", "path": "full_name", "type": "string"},
+    {"id": "tgt_phone", "path": "phone", "type": "string"},
+    {"id": "tgt_department", "path": "department", "type": "string"},
+    {"id": "tgt_job_title", "path": "job_title", "type": "string"},
+    {"id": "tgt_is_active", "path": "is_active", "type": "bool"}
+  ],
+  "steps": [
+    {
+      "id": "concat_name",
+      "type": "transformer",
+      "action": {
+        "key": "text_concat",
+        "arguments": {"separator": " "}
+      }
+    },
+    {
+      "id": "normalize_email",
+      "type": "transformer",
+      "action": {"key": "text_to_lower"}
+    },
+    {
+      "id": "check_active",
+      "type": "transformer",
+      "action": {
+        "key": "text_equals",
+        "arguments": {"compare_to": "ACTIVE"}
+      }
+    }
+  ],
+  "links": [
+    {"source": {"field_id": "src_id"}, "target": {"field_id": "tgt_source_id"}},
+    {"source": {"constant": "okta"}, "target": {"field_id": "tgt_integration"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_entity_type"}},
+    {"source": {"field_id": "src_email"}, "target": {"step_id": "normalize_email"}},
+    {"source": {"step_id": "normalize_email"}, "target": {"field_id": "tgt_email"}},
+    {"source": {"field_id": "src_first_name"}, "target": {"field_id": "tgt_first_name"}},
+    {"source": {"field_id": "src_last_name"}, "target": {"field_id": "tgt_last_name"}},
+    {"source": {"field_id": "src_first_name"}, "target": {"step_id": "concat_name"}},
+    {"source": {"field_id": "src_last_name"}, "target": {"step_id": "concat_name"}},
+    {"source": {"step_id": "concat_name"}, "target": {"field_id": "tgt_full_name"}},
+    {"source": {"field_id": "src_phone"}, "target": {"field_id": "tgt_phone"}},
+    {"source": {"field_id": "src_department"}, "target": {"field_id": "tgt_department"}},
+    {"source": {"field_id": "src_title"}, "target": {"field_id": "tgt_job_title"}},
+    {"source": {"field_id": "src_status"}, "target": {"step_id": "check_active"}},
+    {"source": {"step_id": "check_active"}, "target": {"field_id": "tgt_is_active"}}
+  ]
+}
+
+###
+@oktaUserMappingId = {{createOktaUserMapping.response.body.id}}
+
+### ============================================================================
+### Mapping Definitions - MS Graph User to Person Entity
+### ============================================================================
+
+### Create MS Graph User -> Person Mapping
+# @name createMsGraphUserMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph User to Person",
+  "key": "msgraph-user-to-person",
+  "description": "Maps MS Graph user data to Person entity for Ivy",
+  "source_fields": [
+    {"id": "src_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_email", "path": "response_body.mail", "type": "string"},
+    {"id": "src_upn", "path": "response_body.userPrincipalName", "type": "string"},
+    {"id": "src_display_name", "path": "response_body.displayName", "type": "string"},
+    {"id": "src_first_name", "path": "response_body.givenName", "type": "string"},
+    {"id": "src_last_name", "path": "response_body.surname", "type": "string"},
+    {"id": "src_phone", "path": "response_body.mobilePhone", "type": "string"},
+    {"id": "src_department", "path": "response_body.department", "type": "string"},
+    {"id": "src_title", "path": "response_body.jobTitle", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_source_id", "path": "_source_id", "type": "string"},
+    {"id": "tgt_integration", "path": "_integration", "type": "string"},
+    {"id": "tgt_entity_type", "path": "_entity_type", "type": "string"},
+    {"id": "tgt_email", "path": "email", "type": "string"},
+    {"id": "tgt_first_name", "path": "first_name", "type": "string"},
+    {"id": "tgt_last_name", "path": "last_name", "type": "string"},
+    {"id": "tgt_full_name", "path": "full_name", "type": "string"},
+    {"id": "tgt_phone", "path": "phone", "type": "string"},
+    {"id": "tgt_department", "path": "department", "type": "string"},
+    {"id": "tgt_job_title", "path": "job_title", "type": "string"}
+  ],
+  "steps": [
+    {
+      "id": "coalesce_email",
+      "type": "transformer",
+      "action": {"key": "any_coalesce"}
+    },
+    {
+      "id": "cast_email",
+      "type": "transformer",
+      "action": {"key": "any_to_string"}
+    },
+    {
+      "id": "normalize_email",
+      "type": "transformer",
+      "action": {"key": "text_to_lower"}
+    }
+  ],
+  "links": [
+    {"source": {"field_id": "src_id"}, "target": {"field_id": "tgt_source_id"}},
+    {"source": {"constant": "msgraph"}, "target": {"field_id": "tgt_integration"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_entity_type"}},
+    {"source": {"field_id": "src_email"}, "target": {"step_id": "coalesce_email"}},
+    {"source": {"field_id": "src_upn"}, "target": {"step_id": "coalesce_email"}},
+    {"source": {"step_id": "coalesce_email"}, "target": {"step_id": "cast_email"}},
+    {"source": {"step_id": "cast_email"}, "target": {"step_id": "normalize_email"}},
+    {"source": {"step_id": "normalize_email"}, "target": {"field_id": "tgt_email"}},
+    {"source": {"field_id": "src_first_name"}, "target": {"field_id": "tgt_first_name"}},
+    {"source": {"field_id": "src_last_name"}, "target": {"field_id": "tgt_last_name"}},
+    {"source": {"field_id": "src_display_name"}, "target": {"field_id": "tgt_full_name"}},
+    {"source": {"field_id": "src_phone"}, "target": {"field_id": "tgt_phone"}},
+    {"source": {"field_id": "src_department"}, "target": {"field_id": "tgt_department"}},
+    {"source": {"field_id": "src_title"}, "target": {"field_id": "tgt_job_title"}}
+  ]
+}
+
+###
+@msGraphUserMappingId = {{createMsGraphUserMapping.response.body.id}}
+
+### ============================================================================
+### Mapping Definitions - MS Graph Device
+### ============================================================================
+
+### Create MS Graph Device Mapping
+# @name createDeviceMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Device",
+  "key": "msgraph-device",
+  "description": "Maps MS Graph device data to Device entity",
+  "source_fields": [
+    {"id": "src_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_display_name", "path": "response_body.displayName", "type": "string"},
+    {"id": "src_device_id", "path": "response_body.deviceId", "type": "string"},
+    {"id": "src_serial_number", "path": "response_body.serialNumber", "type": "string"},
+    {"id": "src_os", "path": "response_body.operatingSystem", "type": "string"},
+    {"id": "src_os_version", "path": "response_body.operatingSystemVersion", "type": "string"},
+    {"id": "src_is_managed", "path": "response_body.isManaged", "type": "bool"},
+    {"id": "src_is_compliant", "path": "response_body.isCompliant", "type": "bool"}
+  ],
+  "target_fields": [
+    {"id": "tgt_source_id", "path": "_source_id", "type": "string"},
+    {"id": "tgt_integration", "path": "_integration", "type": "string"},
+    {"id": "tgt_entity_type", "path": "_entity_type", "type": "string"},
+    {"id": "tgt_name", "path": "name", "type": "string"},
+    {"id": "tgt_device_id", "path": "device_id", "type": "string"},
+    {"id": "tgt_serial_number", "path": "serial_number", "type": "string"},
+    {"id": "tgt_os", "path": "operating_system", "type": "string"},
+    {"id": "tgt_os_version", "path": "os_version", "type": "string"},
+    {"id": "tgt_is_managed", "path": "is_managed", "type": "bool"},
+    {"id": "tgt_is_compliant", "path": "is_compliant", "type": "bool"}
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"field_id": "src_id"}, "target": {"field_id": "tgt_source_id"}},
+    {"source": {"constant": "msgraph"}, "target": {"field_id": "tgt_integration"}},
+    {"source": {"constant": "device"}, "target": {"field_id": "tgt_entity_type"}},
+    {"source": {"field_id": "src_display_name"}, "target": {"field_id": "tgt_name"}},
+    {"source": {"field_id": "src_device_id"}, "target": {"field_id": "tgt_device_id"}},
+    {"source": {"field_id": "src_serial_number"}, "target": {"field_id": "tgt_serial_number"}},
+    {"source": {"field_id": "src_os"}, "target": {"field_id": "tgt_os"}},
+    {"source": {"field_id": "src_os_version"}, "target": {"field_id": "tgt_os_version"}},
+    {"source": {"field_id": "src_is_managed"}, "target": {"field_id": "tgt_is_managed"}},
+    {"source": {"field_id": "src_is_compliant"}, "target": {"field_id": "tgt_is_compliant"}}
+  ]
+}
+
+###
+@deviceMappingId = {{createDeviceMapping.response.body.id}}
+
+### ============================================================================
+### Bindings - Connect Orchid Sources to Mappings
+### ============================================================================
+
+### Create Binding for OKTA User Mapping
+# @name createOktaUserBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "OKTA Users to Person",
+  "mapping_id": "{{oktaUserMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "OKTA Mock",
+    "keys": ["okta-users-sync"]
+  }
+}
+
+###
+@oktaUserBindingId = {{createOktaUserBinding.response.body.id}}
+
+### Create Binding for MS Graph User Mapping
+# @name createMsGraphUserBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Users to Person",
+  "mapping_id": "{{msGraphUserMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-users-sync"]
+  }
+}
+
+### ----------------------------------------------------------------------------
+### Orchid emits ONE message per step call, and `response_body` is always a JSON array.
+### Lotus automatically splits that array into per-record pseudo-messages so mappings can treat
+### `response_body` as a single record (object).
+### ----------------------------------------------------------------------------
+
+### Create Binding for MS Graph User Mapping
+# @name createMsGraphUserBindingFromFanout
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Users to Person",
+  "mapping_id": "{{msGraphUserMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-users-sync"]
+  }
+}
+
+###
+@msGraphUserBindingId = {{createMsGraphUserBinding.response.body.id}}
+
+### Create Binding for Device Mapping
+# @name createDeviceBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Devices",
+  "mapping_id": "{{deviceMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-devices-sync"]
+  }
+}
+
+###
+@deviceBindingId = {{createDeviceBinding.response.body.id}}
+
+### ============================================================================
+### Relationship Mappings - User Owns Device
+### ============================================================================
+
+### Create User-Device Ownership Mapping
+# @name createOwnsRelMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Owns Device Relationship",
+  "key": "user-owns-device",
+  "description": "Maps user-device ownership to Ivy 'owns' relationship",
+  "source_fields": [
+    {"id": "src_owner_id", "path": "response_body.id", "type": "string"},
+    {
+      "id": "src_devices",
+      "path": "response_body.owned_devices.value",
+      "type": "array",
+      "items": {
+        "id": "src_device",
+        "path": "",
+        "type": "object",
+        "fields": [
+          {"id": "src_device_id", "path": "id", "type": "string"},
+          {"id": "src_device_name", "path": "displayName", "type": "string"}
+        ]
+      }
+    }
+  ],
+  "target_fields": [
+    {
+      "id": "tgt_relationships",
+      "path": "relationships",
+      "type": "array",
+      "items": {
+        "id": "tgt_relationship",
+        "path": "",
+        "type": "object",
+        "fields": [
+          {"id": "tgt_rel_type", "path": "_relationship_type", "type": "string"},
+          {"id": "tgt_from_type", "path": "_from_entity_type", "type": "string"},
+          {"id": "tgt_from_id", "path": "_from_source_id", "type": "string"},
+          {"id": "tgt_to_type", "path": "_to_entity_type", "type": "string"},
+          {"id": "tgt_to_id", "path": "_to_source_id", "type": "string"},
+          {"id": "tgt_is_primary", "path": "is_primary", "type": "bool"}
+        ]
+      }
+    }
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"constant": "owns"}, "target": {"field_id": "tgt_rel_type"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_from_type"}},
+    {"source": {"field_id": "src_owner_id"}, "target": {"field_id": "tgt_from_id"}},
+    {"source": {"constant": "device"}, "target": {"field_id": "tgt_to_type"}},
+    {"source": {"field_id": "src_device_id"}, "target": {"field_id": "tgt_to_id"}},
+    {"source": {"constant": false}, "target": {"field_id": "tgt_is_primary"}}
+  ]
+}
+
+###
+@ownsRelMappingId = {{createOwnsRelMapping.response.body.id}}
+
+### Create Binding for User-Device Ownership
+# @name createOwnsBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Owns Device Relationship",
+  "mapping_id": "{{ownsRelMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-users-sync"]
+  }
+}
+
+###
+@ownsBindingId = {{createOwnsBinding.response.body.id}}
+
+### ============================================================================
+### Relationship Mappings - User Reports To Manager
+### ============================================================================
+
+### Create Reports To Mapping
+# @name createReportsToMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Reports To Manager",
+  "key": "user-reports-to",
+  "description": "Maps user-manager relationship to Ivy 'reports_to' relationship",
+  "source_fields": [
+    {"id": "src_employee_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_employee_email", "path": "response_body.mail", "type": "string"},
+    {"id": "src_manager_id", "path": "response_body.manager.id", "type": "string"},
+    {"id": "src_manager_email", "path": "response_body.manager.mail", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_rel_type", "path": "_relationship_type", "type": "string"},
+    {"id": "tgt_from_type", "path": "_from_entity_type", "type": "string"},
+    {"id": "tgt_from_id", "path": "_from_source_id", "type": "string"},
+    {"id": "tgt_to_type", "path": "_to_entity_type", "type": "string"},
+    {"id": "tgt_to_id", "path": "_to_source_id", "type": "string"},
+    {"id": "tgt_to_key", "path": "_to_match_key", "type": "string"}
+  ],
+  "steps": [
+    {
+      "id": "normalize_emp_email",
+      "type": "transformer",
+      "action": {"key": "text_to_lower"}
+    },
+    {
+      "id": "normalize_mgr_email",
+      "type": "transformer",
+      "action": {"key": "text_to_lower"}
+    }
+  ],
+  "links": [
+    {"source": {"constant": "reports_to"}, "target": {"field_id": "tgt_rel_type"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_from_type"}},
+    {"source": {"field_id": "src_employee_id"}, "target": {"field_id": "tgt_from_id"}},
+    {"source": {"field_id": "src_employee_email"}, "target": {"step_id": "normalize_emp_email"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_to_type"}},
+    {"source": {"field_id": "src_manager_id"}, "target": {"field_id": "tgt_to_id"}},
+    {"source": {"field_id": "src_manager_email"}, "target": {"step_id": "normalize_mgr_email"}}
+  ]
+}
+
+###
+@reportsToMappingId = {{createReportsToMapping.response.body.id}}
+
+### Create Binding for Reports To
+# @name createReportsToBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Reports To Manager",
+  "mapping_id": "{{reportsToMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-users-sync"]
+  }
+}
+
+###
+@reportsToBindingId = {{createReportsToBinding.response.body.id}}
+
+### ============================================================================
+### Relationship Mappings - User Member Of Group
+### ============================================================================
+
+### Create Member Of Mapping
+# @name createMemberOfMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Member Of Group",
+  "key": "user-member-of-group",
+  "description": "Maps group membership to Ivy 'member_of' relationship",
+  "source_fields": [
+    {"id": "src_group_id", "path": "response_body.id", "type": "string"},
+    {
+      "id": "src_members",
+      "path": "response_body.members.value",
+      "type": "array",
+      "items": {
+        "id": "src_member",
+        "path": "",
+        "type": "object",
+        "fields": [
+          {"id": "src_user_id", "path": "id", "type": "string"}
+        ]
+      }
+    }
+  ],
+  "target_fields": [
+    {
+      "id": "tgt_relationships",
+      "path": "relationships",
+      "type": "array",
+      "items": {
+        "id": "tgt_relationship",
+        "path": "",
+        "type": "object",
+        "fields": [
+          {"id": "tgt_rel_type", "path": "_relationship_type", "type": "string"},
+          {"id": "tgt_from_type", "path": "_from_entity_type", "type": "string"},
+          {"id": "tgt_from_id", "path": "_from_source_id", "type": "string"},
+          {"id": "tgt_to_type", "path": "_to_entity_type", "type": "string"},
+          {"id": "tgt_to_id", "path": "_to_source_id", "type": "string"},
+          {"id": "tgt_role", "path": "role", "type": "string"}
+        ]
+      }
+    }
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"constant": "member_of"}, "target": {"field_id": "tgt_rel_type"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_from_type"}},
+    {"source": {"field_id": "src_user_id"}, "target": {"field_id": "tgt_from_id"}},
+    {"source": {"constant": "group"}, "target": {"field_id": "tgt_to_type"}},
+    {"source": {"field_id": "src_group_id"}, "target": {"field_id": "tgt_to_id"}},
+    {"source": {"constant": "member"}, "target": {"field_id": "tgt_role"}}
+  ]
+}
+
+###
+@memberOfMappingId = {{createMemberOfMapping.response.body.id}}
+
+### Create Binding for Member Of
+# @name createMemberOfBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Member Of Group",
+  "mapping_id": "{{memberOfMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-group-memberships"]
+  }
+}
+
+###
+@memberOfBindingId = {{createMemberOfBinding.response.body.id}}
+
+### ============================================================================
+### MS Graph Group Entity Mapping
+### ============================================================================
+
+### Create MS Graph Group Mapping
+# @name createGroupMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Group",
+  "key": "msgraph-group",
+  "description": "Maps MS Graph group data to Group entity",
+  "source_fields": [
+    {"id": "src_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_display_name", "path": "response_body.displayName", "type": "string"},
+    {"id": "src_description", "path": "response_body.description", "type": "string"},
+    {"id": "src_mail", "path": "response_body.mail", "type": "string"},
+    {"id": "src_group_types", "path": "response_body.groupTypes", "type": "array"}
+  ],
+  "target_fields": [
+    {"id": "tgt_source_id", "path": "_source_id", "type": "string"},
+    {"id": "tgt_integration", "path": "_integration", "type": "string"},
+    {"id": "tgt_entity_type", "path": "_entity_type", "type": "string"},
+    {"id": "tgt_name", "path": "name", "type": "string"},
+    {"id": "tgt_description", "path": "description", "type": "string"},
+    {"id": "tgt_email", "path": "email", "type": "string"}
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"field_id": "src_id"}, "target": {"field_id": "tgt_source_id"}},
+    {"source": {"constant": "msgraph"}, "target": {"field_id": "tgt_integration"}},
+    {"source": {"constant": "group"}, "target": {"field_id": "tgt_entity_type"}},
+    {"source": {"field_id": "src_display_name"}, "target": {"field_id": "tgt_name"}},
+    {"source": {"field_id": "src_description"}, "target": {"field_id": "tgt_description"}},
+    {"source": {"field_id": "src_mail"}, "target": {"field_id": "tgt_email"}}
+  ]
+}
+
+###
+@groupMappingId = {{createGroupMapping.response.body.id}}
+
+### Create Binding for Group Mapping
+# @name createGroupBinding
+POST {{lotusUrl}}/api/v1/bindings
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "MS Graph Groups",
+  "mapping_id": "{{groupMappingId}}",
+  "is_enabled": true,
+  "output_topic": "mapped-data",
+  "filter": {
+    "integration": "MS Graph Mock",
+    "keys": ["msgraph-groups-sync"]
+  }
+}
+
+###
+@groupBindingId = {{createGroupBinding.response.body.id}}
+
+### ============================================================================
+### Binding Management
+### ============================================================================
+
+### List All Bindings
+GET {{lotusUrl}}/api/v1/bindings
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Get Specific Binding
+GET {{lotusUrl}}/api/v1/bindings/{{oktaUserBindingId}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Disable a Binding
+PUT {{lotusUrl}}/api/v1/bindings/{{oktaUserBindingId}}
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "is_enabled": false
+}
+
+###
+
+### Delete a Binding
+DELETE {{lotusUrl}}/api/v1/bindings/{{oktaUserBindingId}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+### ============================================================================
+### Criteria-Based Relationships
+### ============================================================================
+### Criteria-based relationships connect one entity to MULTIPLE entities
+### matching a criteria, rather than a single specific entity.
+### 
+### Examples:
+### - "User X has_access_to all Devices where platform=Windows"  
+### - "User X can_manage all Devices with tags containing 'FISMA'"
+### - "Admin Group has_admin_on all Devices where is_managed=true"
+###
+### Supported operators in criteria:
+### - equality: {"field": "value"}
+### - $contains: {"tags": {"$contains": "FISMA"}} - array contains value
+### - $in: {"platform": {"$in": ["Windows", "macOS"]}} - value in list
+### - $gte/$gt/$lte/$lt: {"risk_score": {"$gte": 80}} - numeric comparisons
+### - $exists: {"serial_number": {"$exists": true}} - field exists
+### - $ne: {"status": {"$ne": "inactive"}} - not equal
+
+### Create Criteria-Based Relationship Mapping (User has_access_to Windows Devices)
+# @name createCriteriaRelMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "User Has Access To Windows Devices",
+  "key": "user-has-access-windows-devices",
+  "description": "Maps user access policy to all Windows devices - criteria-based relationship",
+  "source_fields": [
+    {"id": "src_user_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_policy_id", "path": "response_body.policy_id", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_rel_type", "path": "_relationship_type", "type": "string"},
+    {"id": "tgt_from_type", "path": "_from_entity_type", "type": "string"},
+    {"id": "tgt_from_id", "path": "_from_source_id", "type": "string"},
+    {"id": "tgt_from_integration", "path": "_from_integration", "type": "string"},
+    {"id": "tgt_to_type", "path": "_to_entity_type", "type": "string"},
+    {"id": "tgt_to_integration", "path": "_to_integration", "type": "string"},
+    {"id": "tgt_to_criteria", "path": "_to_criteria", "type": "object"},
+    {"id": "tgt_policy_id", "path": "policy_id", "type": "string"}
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"constant": "has_access_to"}, "target": {"field_id": "tgt_rel_type"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_from_type"}},
+    {"source": {"field_id": "src_user_id"}, "target": {"field_id": "tgt_from_id"}},
+    {"source": {"constant": "okta"}, "target": {"field_id": "tgt_from_integration"}},
+    {"source": {"constant": "device"}, "target": {"field_id": "tgt_to_type"}},
+    {"source": {"constant": "msgraph"}, "target": {"field_id": "tgt_to_integration"}},
+    {"source": {"constant": {"operating_system": "Windows"}}, "target": {"field_id": "tgt_to_criteria"}},
+    {"source": {"field_id": "src_policy_id"}, "target": {"field_id": "tgt_policy_id"}}
+  ]
+}
+
+###
+@criteriaRelMappingId = {{createCriteriaRelMapping.response.body.id}}
+
+### Create Criteria-Based Relationship Mapping with Complex Criteria
+### (User can_manage Devices with FISMA tag that are compliant)
+# @name createComplexCriteriaRelMapping
+POST {{lotusUrl}}/api/v1/mappings/definitions
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "Security Admin Manages FISMA Compliant Devices",
+  "key": "admin-manages-fisma-devices",
+  "description": "Security admins can manage all FISMA-tagged compliant devices",
+  "source_fields": [
+    {"id": "src_admin_id", "path": "response_body.id", "type": "string"},
+    {"id": "src_role", "path": "response_body.role", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_rel_type", "path": "_relationship_type", "type": "string"},
+    {"id": "tgt_from_type", "path": "_from_entity_type", "type": "string"},
+    {"id": "tgt_from_id", "path": "_from_source_id", "type": "string"},
+    {"id": "tgt_from_integration", "path": "_from_integration", "type": "string"},
+    {"id": "tgt_to_type", "path": "_to_entity_type", "type": "string"},
+    {"id": "tgt_to_integration", "path": "_to_integration", "type": "string"},
+    {"id": "tgt_to_criteria", "path": "_to_criteria", "type": "object"},
+    {"id": "tgt_role", "path": "admin_role", "type": "string"}
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"constant": "can_manage"}, "target": {"field_id": "tgt_rel_type"}},
+    {"source": {"constant": "person"}, "target": {"field_id": "tgt_from_type"}},
+    {"source": {"field_id": "src_admin_id"}, "target": {"field_id": "tgt_from_id"}},
+    {"source": {"constant": "okta"}, "target": {"field_id": "tgt_from_integration"}},
+    {"source": {"constant": "device"}, "target": {"field_id": "tgt_to_type"}},
+    {"source": {"constant": "msgraph"}, "target": {"field_id": "tgt_to_integration"}},
+    {"source": {"constant": {"tags": {"$contains": "FISMA"}, "is_compliant": true}}, "target": {"field_id": "tgt_to_criteria"}},
+    {"source": {"field_id": "src_role"}, "target": {"field_id": "tgt_role"}}
+  ]
+}
+
+###
+@complexCriteriaRelMappingId = {{createComplexCriteriaRelMapping.response.body.id}}
+
+### ============================================================================
+### Test Mapping Execution
+### ============================================================================
+
+### Get Active Mapping Definition (debug)
+GET {{lotusUrl}}/api/v1/mappings/definitions/{{ownsRelMappingId}}
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+###
+
+### Validate Mapping Definition
+POST {{lotusUrl}}/api/v1/mappings/definitions/validate
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "name": "Test Mapping",
+  "source_fields": [
+    {"id": "src_name", "path": "data.name", "type": "string"}
+  ],
+  "target_fields": [
+    {"id": "tgt_name", "path": "name", "type": "string"}
+  ],
+  "steps": [],
+  "links": [
+    {"source": {"field_id": "src_name"}, "target": {"field_id": "tgt_name"}}
+  ]
+}
+
+###
+
+### Test Mapping with Sample Data
+POST {{lotusUrl}}/api/v1/mappings/execute
+Content-Type: application/json
+X-Tenant-ID: {{tenantId}}
+X-User-ID: {{userId}}
+
+{
+  "id": "{{ownsRelMappingId}}",
+  "source_raw": {
+    "response_body": {
+			"department": "Marketing",
+			"displayName": "Jane Smith",
+			"givenName": "Jane",
+			"id": "msg-user-002",
+			"jobTitle": "Marketing Manager",
+			"mail": "jane.smith@acme.com",
+			"manager": {
+				"department": "Product",
+				"displayName": "Fiona Chen",
+				"givenName": "Fiona",
+				"id": "msg-user-008",
+				"jobTitle": "Product Manager",
+				"mail": "fiona.chen@acme.com",
+				"mobilePhone": "+1-555-0108",
+				"surname": "Chen",
+				"userPrincipalName": "fiona.chen@acme.onmicrosoft.com"
+			},
+			"mobilePhone": "+1-555-0102",
+			"owned_devices": {
+				"@odata.context": "https://graph.microsoft.com/v1.0/$metadata#devices",
+				"value": [
+					{
+						"deviceId": "dev-win-001",
+						"displayName": "Jane's Windows Laptop",
+						"id": "msg-device-003",
+						"isCompliant": true,
+						"isManaged": true,
+						"operatingSystem": "Windows",
+						"operatingSystemVersion": "11",
+						"serialNumber": "PF3R9X1K2M4N",
+						"trustType": "AzureAd"
+					}
+				]
+			},
+			"surname": "Smith",
+			"userPrincipalName": "jane.smith@acme.onmicrosoft.com"
+		}
+  }
+}
+

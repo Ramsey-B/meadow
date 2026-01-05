@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS relationship_types;
+DROP TABLE IF EXISTS entity_types;
+DROP EXTENSION IF EXISTS fuzzystrmatch;
+DROP EXTENSION IF EXISTS pg_trgm;
+
