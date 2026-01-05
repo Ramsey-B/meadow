@@ -1,0 +1,37 @@
+# Air configuration for debug mode with Delve
+# Run with: air -c .air.debug.toml
+# Then attach VS Code debugger to port 2346
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Build with debug symbols
+cmd = "go build -gcflags='all=-N -l' -o ./tmp/main ./cmd"
+# Run with Delve headless server (different port than Orchid)
+full_bin = "dlv exec ./tmp/main --headless --listen=:2346 --api-version=2 --accept-multiclient --continue"
+bin = "tmp/main"
+include_ext = ["go", "tpl", "tmpl", "html"]
+exclude_dir = ["assets", "tmp", "vendor", "node_modules"]
+exclude_file = []
+exclude_regex = ["_test.go"]
+exclude_unchanged = true
+follow_symlink = false
+log = "build-errors.log"
+delay = 1000 # ms
+stop_on_error = true
+send_interrupt = true
+kill_delay = 500
+
+[log]
+time = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true
+

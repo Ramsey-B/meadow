@@ -1,0 +1,349 @@
+{
+  "source_raw": {
+    "source_field_1": "My Source Field 1",
+    "source_field_2": 23
+  },
+  "source_fields": [
+    {
+      "id": "source_field_1",
+      "name": "My Source Field 1",
+      "path": "source_field_1",
+      "type": "string"
+    },
+    {
+      "id": "source_field_2",
+      "name": "My Source Field 2",
+      "path": "source_field_2",
+      "type": "number"
+    },
+    {
+      "id": "source_field_3",
+      "name": "My Source Field 3",
+      "path": "source_field_3",
+      "type": "bool"
+    },
+    {
+      "id": "source_field_4",
+      "name": "My Source Field 4",
+      "path": "source_field_4",
+      "type": "date"
+    },
+    {
+      "id": "source_field_5",
+      "name": "My Source Field 5",
+      "path": "source_field_5",
+      "type": "any"
+    },
+    {
+      "id": "source_field_6",
+      "name": "My Source Field 6",
+      "path": "source_field_6",
+      "type": "array",
+      "items": {
+        "id": "source_field_6_item",
+        "name": "My Source Field 6 Item",
+        "path": "source_field_6_item",
+        "type": "string"
+      }
+    },
+    {
+      "id": "source_field_7",
+      "name": "My Source Field 7",
+      "path": "source_field_7",
+      "type": "array",
+      "items": {
+        "id": "source_field_7_item",
+        "name": "My Source Field 7 Item",
+        "path": "source_field_7_item",
+        "type": "number"
+      }
+    },
+    {
+      "id": "source_field_8",
+      "name": "My Source Field 8",
+      "path": "source_field_8",
+      "type": "array",
+      "items": {
+        "id": "source_field_8_item",
+        "name": "My Source Field 8 Item",
+        "path": "source_field_8_item",
+        "type": "bool"
+      }
+    },
+    {
+      "id": "source_field_9",
+      "name": "My Source Field 9",
+      "path": "source_field_9",
+      "type": "array",
+      "items": {
+        "id": "source_field_9_item",
+        "name": "My Source Field 9 Item",
+        "path": "source_field_9_item",
+        "type": "date"
+      }
+    },
+    {
+      "id": "source_field_10",
+      "name": "My Source Field 10",
+      "path": "source_field_10",
+      "type": "array",
+      "items": {
+        "id": "source_field_10_item",
+        "name": "My Source Field 10 Item",
+        "path": "source_field_10_item",
+        "type": "any"
+      }
+    },
+    {
+      "id": "source_field_11",
+      "name": "My Source Field 11",
+      "path": "source_field_11",
+      "type": "object",
+      "fields": [
+        {
+          "id": "source_field_11_field_1",
+          "name": "My Source Field 11 Field 1",
+          "path": "source_field_11_field_1",
+          "type": "string"
+        },
+        {
+          "id": "source_field_11_field_2",
+          "name": "My Source Field 11 Field 2",
+          "path": "source_field_11_field_2",
+          "type": "number"
+        },
+        {
+          "id": "source_field_11_field_3",
+          "name": "My Source Field 11 Field 3",
+          "path": "source_field_11_field_3",
+          "type": "bool"
+        },
+        {
+          "id": "source_field_11_field_4",
+          "name": "My Source Field 11 Field 4",
+          "path": "source_field_11_field_4",
+          "type": "date"
+        },
+        {
+          "id": "source_field_11_field_5",
+          "name": "My Source Field 11 Field 5",
+          "path": "source_field_11_field_5",
+          "type": "any"
+        },
+        {
+          "id": "source_field_11_field_6",
+          "name": "My Source Field 11 Field 6",
+          "path": "source_field_11_field_6",
+          "type": "array",
+          "items": {
+            "id": "source_field_11_field_6_item",
+            "name": "My Source Field 11 Field 6 Item",
+            "path": "source_field_11_field_6_item",
+            "type": "string"
+          }
+        },
+        {
+          "id": "source_field_11_field_7",
+          "name": "My Source Field 11 Field 7",
+          "path": "source_field_11_field_7",
+          "type": "array",
+          "items": {
+            "id": "source_field_11_field_7_item",
+            "name": "My Source Field 11 Field 7 Item",
+            "path": "source_field_11_field_7_item",
+            "type": "number"
+          }
+        },
+        {
+          "id": "source_field_11_field_8",
+          "name": "My Source Field 11 Field 8",
+          "path": "source_field_11_field_8",
+          "type": "array",
+          "items": {
+            "id": "source_field_11_field_8_item",
+            "name": "My Source Field 11 Field 8 Item",
+            "path": "source_field_11_field_8_item",
+            "type": "bool"
+          }
+        },
+        {
+          "id": "source_field_11_field_9",
+          "name": "My Source Field 11 Field 9",
+          "path": "source_field_11_field_9",
+          "type": "array",
+          "items": {
+            "id": "source_field_11_field_9_item",
+            "name": "My Source Field 11 Field 9 Item",
+            "path": "source_field_11_field_9_item",
+            "type": "date"
+          }
+        },
+        {
+          "id": "source_field_11_field_10",
+          "name": "My Source Field 11 Field 10",
+          "path": "source_field_11_field_10",
+          "type": "array",
+          "items": {
+            "id": "source_field_11_field_10_item",
+            "name": "My Source Field 11 Field 10 Item",
+            "path": "source_field_11_field_10_item",
+            "type": "any"
+          }
+        }
+      ]
+    },
+    {
+      "id": "source_field_12",
+      "name": "My Source Field 12",
+      "path": "source_field_12",
+      "type": "array",
+      "items": {
+        "id": "source_field_12_item",
+        "name": "My Source Field 12 Item",
+        "path": "source_field_12_item",
+        "type": "object",
+        "fields": [
+          {
+            "id": "source_field_12_item_field_1",
+            "name": "My Source Field 12 Item Field 1",
+            "path": "source_field_12_item_field_1",
+            "type": "string"
+          },
+          {
+            "id": "source_field_12_item_field_2",
+            "name": "My Source Field 12 Item Field 2",
+            "path": "source_field_12_item_field_2",
+            "type": "number"
+          },
+          {
+            "id": "source_field_12_item_field_3",
+            "name": "My Source Field 12 Item Field 3",
+            "path": "source_field_12_item_field_3",
+            "type": "bool"
+          },
+          {
+            "id": "source_field_12_item_field_4",
+            "name": "My Source Field 12 Item Field 4",
+            "path": "source_field_12_item_field_4",
+            "type": "date"
+          },
+          {
+            "id": "source_field_12_item_field_5",
+            "name": "My Source Field 12 Item Field 5",
+            "path": "source_field_12_item_field_5",
+            "type": "any"
+          },
+          {
+            "id": "source_field_12_item_field_6",
+            "name": "My Source Field 12 Item Field 6",
+            "path": "source_field_12_item_field_6",
+            "type": "array",
+            "items": {
+              "id": "source_field_12_item_field_6_item",
+              "name": "My Source Field 12 Item Field 6 Item",
+              "path": "source_field_12_item_field_6_item",
+              "type": "string"
+            }
+          },
+          {
+            "id": "source_field_12_item_field_7",
+            "name": "My Source Field 12 Item Field 7",
+            "path": "source_field_12_item_field_7",
+            "type": "object",
+            "fields": [
+              {
+                "id": "source_field_12_item_field_7_field_1",
+                "name": "My Source Field 12 Item Field 7 Field 1",
+                "path": "source_field_12_item_field_7_field_1",
+                "type": "string"
+              },
+              {
+                "id": "source_field_12_item_field_7_field_2",
+                "name": "My Source Field 12 Item Field 7 Field 2",
+                "path": "source_field_12_item_field_7_field_2",
+                "type": "number"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "target_fields": [
+    {
+      "id": "target_field_1",
+      "name": "My target Field 1",
+      "path": "target_field_1",
+      "type": "string"
+    }
+  ],
+  "steps": [
+    {
+      "id": "source_field_2_to_string",
+      "key": "transformer",
+      "actions": [
+        {
+          "key": "number_to_string"
+        }
+      ]
+    },
+    {
+      "id": "source_field_1-source_field_2-concat",
+      "key": "accumulator",
+      "actions": [
+        {
+          "key": "text_concat",
+          "arguments": {
+            "separator": "-"
+          }
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "id": "source_field_1-concat",
+      "from": {
+        "type": "field",
+        "id": "source_field_1"
+      },
+      "to": {
+        "type": "step",
+        "id": "source_field_1-source_field_2-concat"
+      }
+    },
+    {
+      "id": "source_field_2-to_string",
+      "from": {
+        "type": "field",
+        "id": "source_field_2"
+      },
+      "to": {
+        "type": "step",
+        "id": "source_field_2_to_string"
+      }
+    },
+    {
+      "id": "to_string-concat",
+      "from": {
+        "type": "step",
+        "id": "source_field_2_to_string"
+      },
+      "to": {
+        "type": "step",
+        "id": "source_field_1-source_field_2-concat"
+      }
+    },
+    {
+      "id": "concat-target_field_1",
+      "from": {
+        "type": "step",
+        "id": "source_field_1-source_field_2-concat"
+      },
+      "to": {
+        "type": "field",
+        "id": "target_field_1"
+      }
+    }
+  ]
+}

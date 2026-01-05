@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS mapping_definitions;
+DROP INDEX IF EXISTS idx_mapping_definitions_tenant_id;
+DROP INDEX IF EXISTS idx_mapping_definitions_user_id;
+DROP INDEX IF EXISTS idx_mapping_definitions_is_active;
+DROP INDEX IF EXISTS idx_mapping_definitions_is_deleted;
+DROP INDEX IF EXISTS idx_mapping_definitions_key;
+DROP INDEX IF EXISTS idx_mapping_definitions_name;
+DROP INDEX IF EXISTS idx_mapping_definitions_description;
+DROP INDEX IF EXISTS idx_mapping_definitions_tags;

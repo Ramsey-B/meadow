@@ -1,0 +1,70 @@
+services:
+  coordinator:
+    image: citusdata/citus:latest
+    container_name: citus_coordinator
+    environment:
+      POSTGRES_USER: ${DB_USER_NAME:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-lotus}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - coordinator-data:/var/lib/postgresql/data
+      - ./citus-init:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c shared_preload_libraries=citus
+      -c citus.log_distributed_ddl_commands=on
+
+  worker:
+    image: citusdata/citus:latest
+    container_name: citus_worker
+    environment:
+      POSTGRES_USER: ${DB_USER_NAME:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+    volumes:
+      - worker-data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_preload_libraries=citus
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    command:
+      - start-dev
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ./:/workspace:delegated
+    env_file: .env
+    environment:
+      DB_HOST: coordinator
+      DB_USER_NAME: ${DB_USER_NAME:-user}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_NAME: ${DB_NAME:-lotus}
+      AUTH_ISSUER_URL: http://keycloak:${KEYCLOAK_PORT:-8080}/realms/Dev
+      AUTH_CLIENT_ID: ${AUTH_CLIENT_ID:-dev}
+    command: sleep infinity
+    ports:
+      - "3001:3001"
+      - "2346:2345" # Delve debugger port for dev container
+    depends_on:
+      - coordinator
+      - worker
+      - keycloak
+
+volumes:
+  coordinator-data:
+  worker-data:
+  keycloak-data:
