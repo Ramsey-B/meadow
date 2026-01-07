@@ -1,0 +1,146 @@
+name: Lotus Coalesce and Default Actions
+description: Test coalesce (first non-null) and default value fallback actions
+
+steps:
+  # Test any_coalesce - returns first non-empty value
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Coalesce Test"
+        source_raw:
+          primary_email: null
+          secondary_email: ""
+          backup_email: "backup@example.com"
+        source_fields:
+          - id: primary
+            path: "primary_email"
+            type: string
+          - id: secondary
+            path: "secondary_email"
+            type: string
+          - id: backup
+            path: "backup_email"
+            type: string
+        target_fields:
+          - id: email
+            path: "email"
+            type: string
+        steps:
+          - id: coalesce
+            type: transformer
+            action:
+              key: any_coalesce
+        links:
+          - source:
+              field_id: primary
+            target:
+              step_id: coalesce
+          - source:
+              field_id: secondary
+            target:
+              step_id: coalesce
+          - source:
+              field_id: backup
+            target:
+              step_id: coalesce
+          - source:
+              step_id: coalesce
+            target:
+              field_id: email
+      expect:
+        status: 200
+      save_as: coalesce_result
+
+  # Verify it returns the first non-empty value
+  - assert:
+      variable: coalesce_result.target_raw.email
+      equals: "backup@example.com"
+      message: Should return first non-empty value (backup_email)
+
+  # Test any_default - returns value or default if empty
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Default Value Test"
+        source_raw:
+          phone: null
+        source_fields:
+          - id: phone
+            path: "phone"
+            type: string
+        target_fields:
+          - id: phone_output
+            path: "phone"
+            type: string
+        steps:
+          - id: with_default
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "N/A"
+        links:
+          - source:
+              field_id: phone
+            target:
+              step_id: with_default
+          - source:
+              step_id: with_default
+            target:
+              field_id: phone_output
+      expect:
+        status: 200
+      save_as: default_result
+
+  # Verify it returns the default when value is null
+  - assert:
+      variable: default_result.target_raw.phone
+      equals: "N/A"
+      message: Should return default value when input is null
+
+  # Test any_default with non-null value
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Default Value Test (Non-null)"
+        source_raw:
+          phone: "555-1234"
+        source_fields:
+          - id: phone
+            path: "phone"
+            type: string
+        target_fields:
+          - id: phone_output
+            path: "phone"
+            type: string
+        steps:
+          - id: with_default
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "N/A"
+        links:
+          - source:
+              field_id: phone
+            target:
+              step_id: with_default
+          - source:
+              step_id: with_default
+            target:
+              field_id: phone_output
+      expect:
+        status: 200
+      save_as: default_with_value_result
+
+  # Verify it returns the actual value when not null
+  - assert:
+      variable: default_with_value_result.target_raw.phone
+      equals: "555-1234"
+      message: Should return actual value when not null

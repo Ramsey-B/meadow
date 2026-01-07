@@ -1,0 +1,288 @@
+name: Lotus Chained Transformations
+description: Test chaining multiple transformation steps together (A → B → C)
+
+steps:
+  # Test simple chained transformations: trim → lowercase → concat
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Chained Text Transform"
+        source_raw:
+          first: "  JOHN  "
+          last: "  DOE  "
+        source_fields:
+          - id: first_name
+            path: "first"
+            type: string
+          - id: last_name
+            path: "last"
+            type: string
+        target_fields:
+          - id: full_name
+            path: "name"
+            type: string
+        steps:
+          # Step 1: Trim first name
+          - id: trim_first
+            type: transformer
+            action:
+              key: text_trim
+          # Step 2: Lowercase first name
+          - id: lower_first
+            type: transformer
+            action:
+              key: text_to_lower
+          # Step 3: Trim last name
+          - id: trim_last
+            type: transformer
+            action:
+              key: text_trim
+          # Step 4: Lowercase last name
+          - id: lower_last
+            type: transformer
+            action:
+              key: text_to_lower
+          # Step 5: Concat both
+          - id: concat
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: " "
+        links:
+          # First name chain: input → trim → lowercase → concat
+          - source:
+              field_id: first_name
+            target:
+              step_id: trim_first
+          - source:
+              step_id: trim_first
+            target:
+              step_id: lower_first
+          - source:
+              step_id: lower_first
+            target:
+              step_id: concat
+          # Last name chain: input → trim → lowercase → concat
+          - source:
+              field_id: last_name
+            target:
+              step_id: trim_last
+          - source:
+              step_id: trim_last
+            target:
+              step_id: lower_last
+          - source:
+              step_id: lower_last
+            target:
+              step_id: concat
+          # Final output
+          - source:
+              step_id: concat
+            target:
+              field_id: full_name
+      expect:
+        status: 200
+      save_as: chained_result
+
+  # Verify the chained transformation result
+  - assert:
+      variable: chained_result.target_raw.name
+      equals: "john doe"
+      message: Should trim, lowercase, and concatenate correctly
+
+  # Test numeric calculation chain: add → multiply → round
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Chained Numeric Transform"
+        source_raw:
+          price: 19.99
+          tax_rate: 0.08
+          quantity: 3
+        source_fields:
+          - id: base_price
+            path: "price"
+            type: number
+          - id: tax
+            path: "tax_rate"
+            type: number
+          - id: qty
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: total
+            path: "total_price"
+            type: number
+        steps:
+          # Step 1: Multiply price by tax rate
+          - id: calc_tax
+            type: transformer
+            action:
+              key: number_multiply
+          # Step 2: Add tax to price
+          - id: with_tax
+            type: transformer
+            action:
+              key: number_add
+          # Step 3: Multiply by quantity
+          - id: total_calc
+            type: transformer
+            action:
+              key: number_multiply
+          # Step 4: Round the result
+          - id: round_total
+            type: transformer
+            action:
+              key: number_round
+        links:
+          # Calculate tax: price * tax_rate
+          - source:
+              field_id: base_price
+            target:
+              step_id: calc_tax
+          - source:
+              field_id: tax
+            target:
+              step_id: calc_tax
+          # Add tax to price
+          - source:
+              field_id: base_price
+            target:
+              step_id: with_tax
+          - source:
+              step_id: calc_tax
+            target:
+              step_id: with_tax
+          # Multiply by quantity
+          - source:
+              step_id: with_tax
+            target:
+              step_id: total_calc
+          - source:
+              field_id: qty
+            target:
+              step_id: total_calc
+          # Round
+          - source:
+              step_id: total_calc
+            target:
+              step_id: round_total
+          # Output
+          - source:
+              step_id: round_total
+            target:
+              field_id: total
+      expect:
+        status: 200
+      save_as: numeric_chain_result
+
+  # Verify the numeric chain result exists
+  - assert:
+      variable: numeric_chain_result.target_raw.total_price
+      not_empty: true
+      message: Chained numeric calculation should produce result
+
+  # Test mixed transformation chain: extract → concat → lowercase → trim
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Mixed Chain Transform"
+        source_raw:
+          user:
+            profile:
+              firstName: "Alice"
+              lastName: "SMITH"
+            domain: "EXAMPLE.COM"
+        source_fields:
+          - id: first
+            path: "user.profile.firstName"
+            type: string
+          - id: last
+            path: "user.profile.lastName"
+            type: string
+          - id: domain
+            path: "user.domain"
+            type: string
+        target_fields:
+          - id: email
+            path: "email"
+            type: string
+        steps:
+          # Lowercase first name
+          - id: lower_first
+            type: transformer
+            action:
+              key: text_to_lower
+          # Lowercase last name
+          - id: lower_last
+            type: transformer
+            action:
+              key: text_to_lower
+          # Concat first.last
+          - id: username
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: "."
+          # Lowercase domain
+          - id: lower_domain
+            type: transformer
+            action:
+              key: text_to_lower
+          # Concat username@domain
+          - id: build_email
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: "@"
+        links:
+          - source:
+              field_id: first
+            target:
+              step_id: lower_first
+          - source:
+              field_id: last
+            target:
+              step_id: lower_last
+          - source:
+              step_id: lower_first
+            target:
+              step_id: username
+          - source:
+              step_id: lower_last
+            target:
+              step_id: username
+          - source:
+              field_id: domain
+            target:
+              step_id: lower_domain
+          - source:
+              step_id: username
+            target:
+              step_id: build_email
+          - source:
+              step_id: lower_domain
+            target:
+              step_id: build_email
+          - source:
+              step_id: build_email
+            target:
+              field_id: email
+      expect:
+        status: 200
+      save_as: email_chain_result
+
+  # Verify the email construction
+  - assert:
+      variable: email_chain_result.target_raw.email
+      equals: "alice.smith@example.com"
+      message: Should build email from chained transformations

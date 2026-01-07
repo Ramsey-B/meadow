@@ -17,12 +17,12 @@ This document tracks all planned and implemented test cases for the Meadow data 
 
 Quick validation that services are running and reachable.
 
-| Status | Test Case                   | Test File                                                  |
-| ------ | --------------------------- | ---------------------------------------------------------- |
-| ✅     | All services health check   | [`smoke/services_health.yaml`](smoke/services_health.yaml) |
-| ⬚      | Database connectivity check |                                                            |
-| ⬚      | Kafka connectivity check    |                                                            |
-| ⬚      | Redis connectivity check    |                                                            |
+| Status | Test Case                   | Test File                                                                        |
+| ------ | --------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | All services health check   | [`smoke/services_health.yaml`](smoke/services_health.yaml)                       |
+| ✅     | Database connectivity check | [`smoke/database_connectivity.yaml`](smoke/database_connectivity.yaml)           |
+| ✅     | Kafka connectivity check    | [`smoke/kafka_connectivity.yaml`](smoke/kafka_connectivity.yaml)                 |
+| ✅     | Redis connectivity check    | [`smoke/redis_connectivity.yaml`](smoke/redis_connectivity.yaml)                 |
 
 ---
 
@@ -33,33 +33,33 @@ Quick validation that services are running and reachable.
 | Status | Test Case                                    | Test File                                                                              |
 | ------ | -------------------------------------------- | -------------------------------------------------------------------------------------- |
 | ✅     | Create/Read/Update/Delete integration        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml) |
-| ⬚      | Create integration with config schema        |                                                                                        |
-| ⬚      | Create multiple configs for same integration |                                                                                        |
+| ✅     | Create integration with config schema        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml) |
+| ✅     | Create multiple configs for same integration | [`integration/orchid_config_management.yaml`](integration/orchid_config_management.yaml) |
 | ⬚      | Enable/disable configs                       |                                                                                        |
 | ⬚      | Config validation against schema             |                                                                                        |
 
 ### Authentication Flows
 
-| Status | Test Case                            | Test File |
-| ------ | ------------------------------------ | --------- |
-| ⬚      | No authentication (public API)       |           |
-| ⬚      | OAuth2 Client Credentials flow       |           |
-| ⬚      | OAuth2 with token refresh            |           |
-| ⬚      | Basic authentication                 |           |
-| ⬚      | API key authentication (header)      |           |
-| ⬚      | API key authentication (query param) |           |
-| ⬚      | Custom authentication flow           |           |
-| ⬚      | Auth token caching and reuse         |           |
-| ⬚      | Auth token invalidation on 401       |           |
+| Status | Test Case                            | Test File                                                                |
+| ------ | ------------------------------------ | ------------------------------------------------------------------------ |
+| ✅     | No authentication (public API)       | [`integration/orchid_auth_none.yaml`](integration/orchid_auth_none.yaml) |
+| ⬚      | OAuth2 Client Credentials flow       |                                                                          |
+| ⬚      | OAuth2 with token refresh            |                                                                          |
+| ⬚      | Basic authentication                 |                                                                          |
+| ⬚      | API key authentication (header)      |                                                                          |
+| ⬚      | API key authentication (query param) |                                                                          |
+| ⬚      | Custom authentication flow           |                                                                          |
+| ⬚      | Auth token caching and reuse         |                                                                          |
+| ⬚      | Auth token invalidation on 401       |                                                                          |
 
 ### Plan Execution
 
-| Status | Test Case                         | Test File |
-| ------ | --------------------------------- | --------- |
-| ⬚      | Simple single-step plan execution |           |
-| ⬚      | Multi-step sequential execution   |           |
-| ⬚      | Plan with context variables       |           |
-| ⬚      | Plan execution publishes to Kafka |           |
+| Status | Test Case                         | Test File                                                                        |
+| ------ | --------------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | Simple single-step plan creation  | [`integration/orchid_plan_simple.yaml`](integration/orchid_plan_simple.yaml)     |
+| ⬚      | Multi-step sequential execution   |                                                                                  |
+| ⬚      | Plan with context variables       |                                                                                  |
+| ⬚      | Plan execution publishes to Kafka |                                                                                  |
 
 ### Pagination
 
@@ -151,21 +151,21 @@ Quick validation that services are running and reachable.
 
 ### Actions (Transformations)
 
-| Status | Test Case                                  | Test File                                                          |
-| ------ | ------------------------------------------ | ------------------------------------------------------------------ |
-| ✅     | List available actions                     | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml) |
-| ✅     | Get action output types                    | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml) |
-| ✅     | Inline mapping test                        | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml) |
-| ⬚      | Text actions (to_lower, to_upper, trim)    |                                                                    |
-| ⬚      | Text concat with separator                 |                                                                    |
-| ⬚      | Text split to array                        |                                                                    |
-| ⬚      | Number operations (add, multiply)          |                                                                    |
-| ⬚      | Date parsing and formatting                |                                                                    |
-| ⬚      | Coalesce (first non-null)                  |                                                                    |
-| ⬚      | Default value fallback                     |                                                                    |
-| ⬚      | Array operations (push, length, contains)  |                                                                    |
-| ⬚      | Object operations (get, pick, omit, merge) |                                                                    |
-| ⬚      | Conditional (if-else)                      |                                                                    |
+| Status | Test Case                                  | Test File                                                                      |
+| ------ | ------------------------------------------ | ------------------------------------------------------------------------------ |
+| ✅     | List available actions                     | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)             |
+| ✅     | Get action output types                    | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)             |
+| ✅     | Inline mapping test                        | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)             |
+| ✅     | Text actions (to_lower, to_upper, trim)    | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)           |
+| ✅     | Text concat with separator                 | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)           |
+| ✅     | Text split to array                        | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)           |
+| ✅     | Number operations (add, multiply)          | [`integration/lotus_number_actions.yaml`](integration/lotus_number_actions.yaml)       |
+| ⬚      | Date parsing and formatting                |                                                                                        |
+| ✅     | Coalesce (first non-null)                  | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)   |
+| ✅     | Default value fallback                     | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)   |
+| ✅     | Array operations (push, length, contains)  | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)         |
+| ⬚      | Object operations (get, pick, omit, merge) |                                                                                        |
+| ⬚      | Conditional (if-else)                      |                                                                                        |
 | ⬚      | Regex match and replace                    |                                                                    |
 
 ### Type Matching
@@ -183,22 +183,22 @@ Quick validation that services are running and reachable.
 
 ### Simple Mappings
 
-| Status | Test Case                           | Test File |
-| ------ | ----------------------------------- | --------- |
-| ⬚      | Direct field-to-field mapping       |           |
-| ⬚      | Constant value mapping              |           |
-| ⬚      | Multiple fields to multiple targets |           |
-| ⬚      | Nested source to flat target        |           |
-| ⬚      | Flat source to nested target        |           |
+| Status | Test Case                           | Test File                                                                            |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------------------ |
+| ✅     | Direct field-to-field mapping       | [`integration/lotus_simple_mappings.yaml`](integration/lotus_simple_mappings.yaml)   |
+| ✅     | Constant value mapping              | [`integration/lotus_simple_mappings.yaml`](integration/lotus_simple_mappings.yaml)   |
+| ✅     | Multiple fields to multiple targets | [`integration/lotus_simple_mappings.yaml`](integration/lotus_simple_mappings.yaml)   |
+| ✅     | Nested source to flat target        | [`integration/lotus_simple_mappings.yaml`](integration/lotus_simple_mappings.yaml)   |
+| ✅     | Flat source to nested target        | [`integration/lotus_simple_mappings.yaml`](integration/lotus_simple_mappings.yaml)   |
 
 ### Transform Mappings
 
-| Status | Test Case                           | Test File |
-| ------ | ----------------------------------- | --------- |
-| ⬚      | Single transformation step          |           |
-| ⬚      | Chained transformations (A → B → C) |           |
-| ⬚      | Multiple inputs to one step         |           |
-| ⬚      | One input to multiple steps         |           |
+| Status | Test Case                           | Test File                                                                                  |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| ✅     | Single transformation step          | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
+| ✅     | Chained transformations (A → B → C) | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml)   |
+| ✅     | Multiple inputs to one step         | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml)   |
+| ✅     | One input to multiple steps         | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml)   |
 | ⬚      | Aggregate step (collect into array) |           |
 | ⬚      | Aggregate step (join strings)       |           |
 

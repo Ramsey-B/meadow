@@ -1,0 +1,26 @@
+name: Kafka Connectivity Check
+description: Verify Kafka broker is accessible and can publish/consume messages
+
+steps:
+  # Publish a simple test message to verify Kafka is writable
+  - publish_kafka:
+      topic: meadow-test-connectivity
+      key: "smoke-test-{{uuid}}"
+      value:
+        test: connectivity
+        timestamp: "{{timestamp}}"
+
+  # Wait a moment for the message to be committed
+  - wait:
+      duration: 500ms
+      reason: Allow Kafka commit
+
+  # Consume to verify Kafka is readable
+  # This also confirms topic auto-creation is working
+  - assert_kafka_message:
+      topic: meadow-test-connectivity
+      timeout: 10s
+      consume_from: earliest
+      assertions:
+        - field: test
+          equals: connectivity

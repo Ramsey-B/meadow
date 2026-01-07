@@ -1,0 +1,101 @@
+name: Orchid Simple Plan Creation
+description: Test creating a simple single-step plan in Orchid
+
+steps:
+  # First create an integration to use for the plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Test Integration for Plans {{uuid}}"
+        description: "Integration for testing plan execution"
+        config_schema:
+          name: "Simple Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create a config for this integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Test Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create a simple single-step plan that fetches data from the mock API
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Simple Test Plan {{uuid}}"
+        key: "simple-test-{{uuid}}"
+        description: "Single-step plan for testing"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify the plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan key should be returned
+
+  # List plans to verify it was created
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans?integration_id={{integration.id}}
+      expect:
+        status: 200
+      save_as: plans_list
+
+  # Get the specific plan
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+
+cleanup:
+  # Clean up in reverse order (use key for plan deletion)
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

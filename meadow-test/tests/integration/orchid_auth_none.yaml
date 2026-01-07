@@ -1,0 +1,90 @@
+name: Orchid No Authentication
+description: Test plan execution with no authentication (public API)
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Public API Integration {{uuid}}"
+        description: "Integration for testing no authentication"
+        config_schema:
+          name: "Public API Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with no authentication
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Public API Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config has auth type none
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config should be created successfully
+
+  # Create a plan that calls a public endpoint
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Public API Plan {{uuid}}"
+        key: "public-api-{{uuid}}"
+        description: "Plan that accesses public endpoint with no auth"
+        steps:
+          - id: fetch_health
+            type: request
+            method: GET
+            path: /health
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan should be created
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

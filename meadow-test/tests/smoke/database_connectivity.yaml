@@ -1,0 +1,40 @@
+name: Database Connectivity Check
+description: Verify PostgreSQL database is accessible and properly configured
+
+steps:
+  # Check if Orchid can connect to its database
+  # Most services expose a health endpoint that includes DB connectivity
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+      save_as: orchid_health
+
+  # Check if Lotus can connect to its database
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+      save_as: lotus_health
+
+  # Check if Ivy can connect to its graph database (Memgraph)
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+      save_as: ivy_health
+
+  # Verify we can actually query the database by listing entity types
+  # This ensures not just connection but read access
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types
+      expect:
+        status: 200

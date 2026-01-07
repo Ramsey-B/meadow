@@ -1,0 +1,214 @@
+name: Lotus Text Transformation Actions
+description: Test various text transformation actions (to_lower, to_upper, trim, concat, split)
+
+steps:
+  # Test text_to_lower action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text To Lower Test"
+        source_raw:
+          text: "HELLO WORLD"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: lowercase
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: lowercase
+          - source:
+              step_id: lowercase
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: lowercase_result
+
+  # Verify the result
+  - assert:
+      variable: lowercase_result.target_raw.result
+      equals: "hello world"
+      message: Text should be lowercased
+
+  # Test text_to_upper action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text To Upper Test"
+        source_raw:
+          text: "hello world"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: uppercase
+            type: transformer
+            action:
+              key: text_to_upper
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: uppercase
+          - source:
+              step_id: uppercase
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: uppercase_result
+
+  # Verify the result
+  - assert:
+      variable: uppercase_result.target_raw.result
+      equals: "HELLO WORLD"
+      message: Text should be uppercased
+
+  # Test text_trim action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Trim Test"
+        source_raw:
+          text: "  hello world  "
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: trim
+            type: transformer
+            action:
+              key: text_trim
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: trim
+          - source:
+              step_id: trim
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: trim_result
+
+  # Verify the result
+  - assert:
+      variable: trim_result.target_raw.result
+      equals: "hello world"
+      message: Text should be trimmed
+
+  # Test text_concat action with separator
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Concat Test"
+        source_raw:
+          first: "John"
+          last: "Doe"
+        source_fields:
+          - id: first_name
+            path: "first"
+            type: string
+          - id: last_name
+            path: "last"
+            type: string
+        target_fields:
+          - id: full_name
+            path: "result"
+            type: string
+        steps:
+          - id: concat
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: " "
+        links:
+          - source:
+              field_id: first_name
+            target:
+              step_id: concat
+          - source:
+              field_id: last_name
+            target:
+              step_id: concat
+          - source:
+              step_id: concat
+            target:
+              field_id: full_name
+      expect:
+        status: 200
+      save_as: concat_result
+
+  # Verify the result
+  - assert:
+      variable: concat_result.target_raw.result
+      equals: "John Doe"
+      message: Texts should be concatenated with space
+
+  # Test text_split action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Split Test"
+        source_raw:
+          text: "apple,banana,cherry"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: array
+        steps:
+          - id: split
+            type: transformer
+            action:
+              key: text_split
+              arguments:
+                separator: ","
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: split
+          - source:
+              step_id: split
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: split_result

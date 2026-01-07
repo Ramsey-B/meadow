@@ -10,7 +10,11 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(GOWORK=off go test:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(./meadow-test run:*)",
+      "Bash(make test-meadow-v:*)",
+      "Bash(make test-meadow:*)",
+      "Bash(/Users/ramseybland/Documents/code/go/meadow/meadow-test/meadow-test run:*)"
     ]
   }
 }

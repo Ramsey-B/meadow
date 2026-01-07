@@ -1,0 +1,224 @@
+name: Lotus Array Transformation Actions
+description: Test various array transformation actions (push, length, contains, etc.)
+
+steps:
+  # Test array_push - add value to array
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Push Test"
+        source_raw:
+          tags: ["backend", "api"]
+          new_tag: "production"
+        source_fields:
+          - id: existing_tags
+            path: "tags"
+            type: array
+          - id: tag_to_add
+            path: "new_tag"
+            type: string
+        target_fields:
+          - id: all_tags
+            path: "tags"
+            type: array
+        steps:
+          - id: push
+            type: transformer
+            action:
+              key: array_push
+        links:
+          - source:
+              field_id: existing_tags
+            target:
+              step_id: push
+          - source:
+              field_id: tag_to_add
+            target:
+              step_id: push
+          - source:
+              step_id: push
+            target:
+              field_id: all_tags
+      expect:
+        status: 200
+      save_as: push_result
+
+  # Verify the array was expanded
+  - assert:
+      variable: push_result.target_raw.tags
+      not_empty: true
+      message: Array should contain pushed value
+
+  # Test array_length - get array size
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Length Test"
+        source_raw:
+          items: ["apple", "banana", "cherry"]
+        source_fields:
+          - id: input_array
+            path: "items"
+            type: array
+        target_fields:
+          - id: count
+            path: "count"
+            type: number
+        steps:
+          - id: length
+            type: transformer
+            action:
+              key: array_length
+        links:
+          - source:
+              field_id: input_array
+            target:
+              step_id: length
+          - source:
+              step_id: length
+            target:
+              field_id: count
+      expect:
+        status: 200
+      save_as: length_result
+
+  # Verify the length
+  - assert:
+      variable: length_result.target_raw.count
+      not_empty: true
+      message: Array length should be returned
+
+  # Test array_contains - check if array contains value
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Contains Test"
+        source_raw:
+          roles: ["admin", "user", "moderator"]
+          check_role: "admin"
+        source_fields:
+          - id: role_array
+            path: "roles"
+            type: array
+          - id: role_to_check
+            path: "check_role"
+            type: string
+        target_fields:
+          - id: has_role
+            path: "is_admin"
+            type: bool
+        steps:
+          - id: contains
+            type: transformer
+            action:
+              key: array_contains
+        links:
+          - source:
+              field_id: role_array
+            target:
+              step_id: contains
+          - source:
+              field_id: role_to_check
+            target:
+              step_id: contains
+          - source:
+              step_id: contains
+            target:
+              field_id: has_role
+      expect:
+        status: 200
+      save_as: contains_result
+
+  # Verify contains result
+  - assert:
+      variable: contains_result.target_raw.is_admin
+      not_empty: true
+      message: Contains result should be returned
+
+  # Test array_reverse - reverse array order
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Reverse Test"
+        source_raw:
+          numbers: [1, 2, 3, 4, 5]
+        source_fields:
+          - id: input
+            path: "numbers"
+            type: array
+        target_fields:
+          - id: output
+            path: "reversed"
+            type: array
+        steps:
+          - id: reverse
+            type: transformer
+            action:
+              key: array_reverse
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: reverse
+          - source:
+              step_id: reverse
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: reverse_result
+
+  # Verify reverse result
+  - assert:
+      variable: reverse_result.target_raw.reversed
+      not_empty: true
+      message: Reversed array should be returned
+
+  # Test array_distinct - remove duplicates
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Distinct Test"
+        source_raw:
+          values: ["a", "b", "a", "c", "b", "d"]
+        source_fields:
+          - id: input
+            path: "values"
+            type: array
+        target_fields:
+          - id: output
+            path: "unique"
+            type: array
+        steps:
+          - id: distinct
+            type: transformer
+            action:
+              key: array_distinct
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: distinct
+          - source:
+              step_id: distinct
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: distinct_result
+
+  # Verify distinct result
+  - assert:
+      variable: distinct_result.target_raw.unique
+      not_empty: true
+      message: Distinct array should be returned

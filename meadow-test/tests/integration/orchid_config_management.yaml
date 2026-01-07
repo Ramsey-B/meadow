@@ -1,0 +1,108 @@
+name: Orchid Config Management
+description: Test creating and managing multiple configs for the same integration
+
+steps:
+  # Create an integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Multi-Config Integration {{uuid}}"
+        description: "Integration for testing multiple configs"
+        config_schema:
+          name: "Environment Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              environment:
+                type: string
+                enum: [dev, staging, prod]
+              api_key:
+                type: string
+            required:
+              - base_url
+              - environment
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create first config (dev environment)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Dev Config"
+        values:
+          base_url: "http://localhost:8090"
+          environment: "dev"
+          api_key: "dev-key-123"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config_dev
+
+  # Create second config (staging environment)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Staging Config"
+        values:
+          base_url: "http://staging.example.com"
+          environment: "staging"
+          api_key: "staging-key-456"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config_staging
+
+  # List all configs for this integration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs?integration_id={{integration.id}}
+      expect:
+        status: 200
+      save_as: configs_list
+
+  # Verify configs can be retrieved individually
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config_dev.id}}
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config_staging.id}}
+      expect:
+        status: 200
+
+cleanup:
+  # Delete configs
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config_dev.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config_staging.id}}
+
+  # Delete integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

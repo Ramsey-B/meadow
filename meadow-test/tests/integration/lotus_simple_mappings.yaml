@@ -1,0 +1,238 @@
+name: Lotus Simple Field Mappings
+description: Test direct field-to-field mappings, constants, and nested field extraction
+
+steps:
+  # Test direct field-to-field mapping
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Direct Field Mapping"
+        source_raw:
+          first_name: "Alice"
+          last_name: "Smith"
+          email: "alice@example.com"
+        source_fields:
+          - id: src_first
+            path: "first_name"
+            type: string
+          - id: src_last
+            path: "last_name"
+            type: string
+          - id: src_email
+            path: "email"
+            type: string
+        target_fields:
+          - id: tgt_first
+            path: "firstName"
+            type: string
+          - id: tgt_last
+            path: "lastName"
+            type: string
+          - id: tgt_email
+            path: "emailAddress"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_first
+            target:
+              field_id: tgt_first
+          - source:
+              field_id: src_last
+            target:
+              field_id: tgt_last
+          - source:
+              field_id: src_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 200
+      save_as: direct_mapping_result
+
+  # Verify the mapping
+  - assert:
+      variable: direct_mapping_result.target_raw.firstName
+      equals: "Alice"
+      message: firstName should be mapped
+
+  - assert:
+      variable: direct_mapping_result.target_raw.lastName
+      equals: "Smith"
+      message: lastName should be mapped
+
+  # Test constant value mapping
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Constant Value Mapping"
+        source_raw:
+          name: "Bob"
+        source_fields:
+          - id: src_name
+            path: "name"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "name"
+            type: string
+          - id: tgt_type
+            path: "entity_type"
+            type: string
+          - id: tgt_status
+            path: "status"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+          - source:
+              constant: "person"
+            target:
+              field_id: tgt_type
+          - source:
+              constant: "active"
+            target:
+              field_id: tgt_status
+      expect:
+        status: 200
+      save_as: constant_mapping_result
+
+  # Verify constants were mapped
+  - assert:
+      variable: constant_mapping_result.target_raw.entity_type
+      equals: "person"
+      message: Constant entity_type should be person
+
+  - assert:
+      variable: constant_mapping_result.target_raw.status
+      equals: "active"
+      message: Constant status should be active
+
+  # Test nested source to flat target
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Nested to Flat Mapping"
+        source_raw:
+          user:
+            profile:
+              name: "Charlie"
+              email: "charlie@example.com"
+            settings:
+              timezone: "UTC"
+        source_fields:
+          - id: src_name
+            path: "user.profile.name"
+            type: string
+          - id: src_email
+            path: "user.profile.email"
+            type: string
+          - id: src_timezone
+            path: "user.settings.timezone"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "name"
+            type: string
+          - id: tgt_email
+            path: "email"
+            type: string
+          - id: tgt_timezone
+            path: "timezone"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+          - source:
+              field_id: src_email
+            target:
+              field_id: tgt_email
+          - source:
+              field_id: src_timezone
+            target:
+              field_id: tgt_timezone
+      expect:
+        status: 200
+      save_as: nested_mapping_result
+
+  # Verify nested extraction
+  - assert:
+      variable: nested_mapping_result.target_raw.name
+      equals: "Charlie"
+      message: Nested name should be extracted
+
+  - assert:
+      variable: nested_mapping_result.target_raw.email
+      equals: "charlie@example.com"
+      message: Nested email should be extracted
+
+  # Test flat source to nested target
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Flat to Nested Mapping"
+        source_raw:
+          name: "Diana"
+          email: "diana@example.com"
+          department: "Engineering"
+        source_fields:
+          - id: src_name
+            path: "name"
+            type: string
+          - id: src_email
+            path: "email"
+            type: string
+          - id: src_dept
+            path: "department"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "user.name"
+            type: string
+          - id: tgt_email
+            path: "user.contact.email"
+            type: string
+          - id: tgt_dept
+            path: "user.employment.department"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+          - source:
+              field_id: src_email
+            target:
+              field_id: tgt_email
+          - source:
+              field_id: src_dept
+            target:
+              field_id: tgt_dept
+      expect:
+        status: 200
+      save_as: flat_to_nested_result
+
+  # Verify nested output structure
+  - assert:
+      variable: flat_to_nested_result.target_raw.user.name
+      equals: "Diana"
+      message: Name should be nested under user
+
+  - assert:
+      variable: flat_to_nested_result.target_raw.user.contact.email
+      equals: "diana@example.com"
+      message: Email should be nested under user.contact
