@@ -89,6 +89,3 @@ local/
 *.pem
 *.key
 *.crt
-
-# Claude Code plan files (optional - remove if you want to track them)
-.claude/plans/

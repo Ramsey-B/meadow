@@ -1,0 +1,111 @@
+name: Lotus Available Actions
+description: Test that Lotus returns the list of available transformation actions
+
+steps:
+  # Get all available actions
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/actions
+      expect:
+        status: 200
+      save_as: actions_response
+
+  # Test output type inference for a text action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/actions/output-types
+      body:
+        key: text_to_lower
+        arguments: {}
+        input_types:
+          - type: string
+      expect:
+        status: 200
+      save_as: output_type_response
+
+  # Test output type for concat action
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/actions/output-types
+      body:
+        key: text_concat
+        arguments:
+          separator: " "
+        input_types:
+          - type: string
+          - type: string
+      expect:
+        status: 200
+
+  # Validate a simple mapping (without persisting)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions/validate
+      body:
+        name: "Validation Test"
+        source_fields:
+          - id: src_name
+            path: "data.name"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "name"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+      expect:
+        status: 202
+
+  # Test inline mapping execution
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Ad-hoc Test Mapping"
+        source_raw:
+          first_name: "John"
+          last_name: "Doe"
+        source_fields:
+          - id: first
+            path: "first_name"
+            type: string
+          - id: last
+            path: "last_name"
+            type: string
+        target_fields:
+          - id: full_name
+            path: "name"
+            type: string
+        steps:
+          - id: concat
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: " "
+        links:
+          - source:
+              field_id: first
+            target:
+              step_id: concat
+          - source:
+              field_id: last
+            target:
+              step_id: concat
+          - source:
+              step_id: concat
+            target:
+              field_id: full_name
+      expect:
+        status: 200
+      save_as: test_result
+

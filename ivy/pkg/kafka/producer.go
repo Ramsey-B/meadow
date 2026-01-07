@@ -107,15 +107,26 @@ func (p *Producer) PublishEntityEvent(ctx context.Context, event *EntityEvent) e
 		return err
 	}
 
+	// Build headers with trace context
+	headers := []kafka.Header{
+		{Key: "event_type", Value: []byte(event.EventType)},
+		{Key: "tenant_id", Value: []byte(event.TenantID)},
+		{Key: "entity_type", Value: []byte(event.EntityType)},
+	}
+
+	// Add trace context headers if available
+	if traceparent := tracing.GetTraceParent(ctx); traceparent != "" {
+		headers = append(headers, kafka.Header{Key: "traceparent", Value: []byte(traceparent)})
+	}
+	if tracestate := tracing.GetTraceState(ctx); tracestate != "" {
+		headers = append(headers, kafka.Header{Key: "tracestate", Value: []byte(tracestate)})
+	}
+
 	msg := kafka.Message{
-		Topic: p.topic,
-		Key:   []byte(event.EntityID),
-		Value: data,
-		Headers: []kafka.Header{
-			{Key: "event_type", Value: []byte(event.EventType)},
-			{Key: "tenant_id", Value: []byte(event.TenantID)},
-			{Key: "entity_type", Value: []byte(event.EntityType)},
-		},
+		Topic:   p.topic,
+		Key:     []byte(event.EntityID),
+		Value:   data,
+		Headers: headers,
 	}
 
 	if err := p.writer.WriteMessages(ctx, msg); err != nil {
@@ -146,15 +157,26 @@ func (p *Producer) PublishRelationshipEvent(ctx context.Context, event *Relation
 		return err
 	}
 
+	// Build headers with trace context
+	headers := []kafka.Header{
+		{Key: "event_type", Value: []byte(event.EventType)},
+		{Key: "tenant_id", Value: []byte(event.TenantID)},
+		{Key: "relationship_type", Value: []byte(event.RelationshipType)},
+	}
+
+	// Add trace context headers if available
+	if traceparent := tracing.GetTraceParent(ctx); traceparent != "" {
+		headers = append(headers, kafka.Header{Key: "traceparent", Value: []byte(traceparent)})
+	}
+	if tracestate := tracing.GetTraceState(ctx); tracestate != "" {
+		headers = append(headers, kafka.Header{Key: "tracestate", Value: []byte(tracestate)})
+	}
+
 	msg := kafka.Message{
-		Topic: p.topic,
-		Key:   []byte(event.RelationshipID),
-		Value: data,
-		Headers: []kafka.Header{
-			{Key: "event_type", Value: []byte(event.EventType)},
-			{Key: "tenant_id", Value: []byte(event.TenantID)},
-			{Key: "relationship_type", Value: []byte(event.RelationshipType)},
-		},
+		Topic:   p.topic,
+		Key:     []byte(event.RelationshipID),
+		Value:   data,
+		Headers: headers,
 	}
 
 	if err := p.writer.WriteMessages(ctx, msg); err != nil {
@@ -214,16 +236,27 @@ func (p *Producer) PublishEntityEvents(ctx context.Context, events []*EntityEven
 			return err
 		}
 
+		// Build headers with trace context
+		headers := []kafka.Header{
+			{Key: "event_type", Value: []byte(event.EventType)},
+			{Key: "tenant_id", Value: []byte(event.TenantID)},
+			{Key: "entity_type", Value: []byte(event.EntityType)},
+			{Key: "schema_version", Value: []byte("1.0")},
+		}
+
+		// Add trace context headers if available
+		if traceparent := tracing.GetTraceParent(ctx); traceparent != "" {
+			headers = append(headers, kafka.Header{Key: "traceparent", Value: []byte(traceparent)})
+		}
+		if tracestate := tracing.GetTraceState(ctx); tracestate != "" {
+			headers = append(headers, kafka.Header{Key: "tracestate", Value: []byte(tracestate)})
+		}
+
 		messages[i] = kafka.Message{
-			Topic: p.topic,
-			Key:   []byte(event.EntityID),
-			Value: data,
-			Headers: []kafka.Header{
-				{Key: "event_type", Value: []byte(event.EventType)},
-				{Key: "tenant_id", Value: []byte(event.TenantID)},
-				{Key: "entity_type", Value: []byte(event.EntityType)},
-				{Key: "schema_version", Value: []byte("1.0")},
-			},
+			Topic:   p.topic,
+			Key:     []byte(event.EntityID),
+			Value:   data,
+			Headers: headers,
 		}
 	}
 
@@ -261,16 +294,27 @@ func (p *Producer) PublishRelationshipEvents(ctx context.Context, events []*Rela
 			return err
 		}
 
+		// Build headers with trace context
+		headers := []kafka.Header{
+			{Key: "event_type", Value: []byte(event.EventType)},
+			{Key: "tenant_id", Value: []byte(event.TenantID)},
+			{Key: "relationship_type", Value: []byte(event.RelationshipType)},
+			{Key: "schema_version", Value: []byte("1.0")},
+		}
+
+		// Add trace context headers if available
+		if traceparent := tracing.GetTraceParent(ctx); traceparent != "" {
+			headers = append(headers, kafka.Header{Key: "traceparent", Value: []byte(traceparent)})
+		}
+		if tracestate := tracing.GetTraceState(ctx); tracestate != "" {
+			headers = append(headers, kafka.Header{Key: "tracestate", Value: []byte(tracestate)})
+		}
+
 		messages[i] = kafka.Message{
-			Topic: p.topic,
-			Key:   []byte(event.RelationshipID),
-			Value: data,
-			Headers: []kafka.Header{
-				{Key: "event_type", Value: []byte(event.EventType)},
-				{Key: "tenant_id", Value: []byte(event.TenantID)},
-				{Key: "relationship_type", Value: []byte(event.RelationshipType)},
-				{Key: "schema_version", Value: []byte("1.0")},
-			},
+			Topic:   p.topic,
+			Key:     []byte(event.RelationshipID),
+			Value:   data,
+			Headers: headers,
 		}
 	}
 

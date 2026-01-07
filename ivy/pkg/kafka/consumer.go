@@ -9,6 +9,7 @@ import (
 	"github.com/Gobusters/ectologger"
 	"github.com/Ramsey-B/stem/pkg/tracing"
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/Ramsey-B/ivy/config"
 )
@@ -108,6 +109,23 @@ func (c *Consumer) consumeLoop(ctx context.Context) {
 }
 
 func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) {
+	// Parse headers
+	headers := make(map[string]string)
+	for _, h := range msg.Headers {
+		headers[h.Key] = string(h.Value)
+	}
+
+	// Reconstruct trace context from headers
+	carrier := propagation.MapCarrier{}
+	for k, v := range headers {
+		carrier.Set(k, v)
+	}
+
+	// Extract parent trace context
+	tp := propagation.TraceContext{}
+	ctx = tp.Extract(ctx, carrier)
+
+	// NOW create span - it will be a child of the extracted trace
 	ctx, span := tracing.StartSpan(ctx, "kafka.Consumer.processMessage")
 	defer span.End()
 
@@ -117,21 +135,17 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) {
 		"offset":    msg.Offset,
 	})
 
-	// Parse headers
-	headers := make(map[string]string)
-	for _, h := range msg.Headers {
-		headers[h.Key] = string(h.Value)
-	}
-
-	// Create incoming message
+	// Create incoming message with trace context
 	incoming := &IncomingMessage{
-		Key:       string(msg.Key),
-		Value:     msg.Value,
-		Headers:   headers,
-		Partition: msg.Partition,
-		Offset:    msg.Offset,
-		Timestamp: msg.Time,
-		Topic:     msg.Topic,
+		Key:         string(msg.Key),
+		Value:       msg.Value,
+		Headers:     headers,
+		TraceParent: headers["traceparent"],
+		TraceState:  headers["tracestate"],
+		Partition:   msg.Partition,
+		Offset:      msg.Offset,
+		Timestamp:   msg.Time,
+		Topic:       msg.Topic,
 	}
 
 	// Parse the Lotus message

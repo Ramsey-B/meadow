@@ -1,0 +1,69 @@
+name: Orchid Integration CRUD
+description: Test creating, reading, updating, and deleting Orchid integrations
+
+steps:
+  # Create an integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Test Integration {{uuid}}"
+        description: "Integration created by meadow-test"
+        config_schema:
+          name: "Test Config Schema"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              api_key:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration_response
+
+  # Verify the integration was created
+  - assert:
+      variable: integration_response.id
+      not_empty: true
+      message: Integration ID should be returned
+
+  # Read the integration back
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/integrations/{{integration_response.id}}
+      expect:
+        status: 200
+      save_as: get_response
+
+  # Update the integration
+  - http_request:
+      service: orchid
+      method: PUT
+      path: /api/v1/integrations/{{integration_response.id}}
+      body:
+        name: "Updated Integration {{uuid}}"
+        description: "Updated description"
+      expect:
+        status: 200
+
+  # List integrations and verify ours is there
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/integrations
+      expect:
+        status: 200
+      save_as: list_response
+
+cleanup:
+  # Delete the integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration_response.id}}
+

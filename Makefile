@@ -1,4 +1,4 @@
-.PHONY: help build test dev dev-orchid dev-lotus dev-ivy dev-mocks air air-orchid air-lotus air-ivy up down clean infra infra-down infra-clean infra-volumes-clean vendor tidy wait-debezium wait-memgraph
+.PHONY: help build test dev dev-orchid dev-lotus dev-ivy dev-mocks air air-orchid air-lotus air-ivy up down clean infra infra-down infra-clean infra-volumes-clean vendor tidy wait-debezium wait-memgraph test-meadow test-meadow-v test-meadow-integration test-meadow-scenarios test-meadow-dry install-meadow-test
 
 # Default target
 help:
@@ -19,6 +19,8 @@ help:
 	@echo "  make build         - Build all projects"
 	@echo "  make test          - Run all tests"
 	@echo "  make test-e2e      - Run E2E tests (requires services)"
+	@echo "  make test-meadow   - Run meadow-test YAML tests"
+	@echo "  make test-meadow-v - Run meadow-test with verbose output"
 	@echo "  make clean         - Clean build artifacts"
 	@echo ""
 	@echo "Dependencies:"
@@ -30,6 +32,12 @@ help:
 	@echo "  make infra-down    - Stop shared infrastructure"
 	@echo "  make infra-clean   - Remove infrastructure volumes"
 	@echo "  make debezium-register-ivy - Register Debezium connector for Ivy tables (CDC)"
+	@echo ""
+	@echo "Meadow Test (declarative YAML testing):"
+	@echo "  make install-meadow-test    - Install meadow-test CLI to GOPATH"
+	@echo "  make test-meadow-integration - Run integration tests only"
+	@echo "  make test-meadow-scenarios   - Run E2E scenario tests only"
+	@echo "  make test-meadow-dry         - Validate YAML tests without running"
 	@echo ""
 	@echo "Manual Testing (use VS Code REST Client extension):"
 	@echo "  test/http/mock-apis.http  - Test mock OKTA & MS Graph APIs"
@@ -96,6 +104,8 @@ debug-ivy:
 build:
 	@echo "Building all projects..."
 	go build ./orchid/... ./lotus/... ./ivy/... ./stem/...
+	@echo "Building meadow-test CLI..."
+	cd meadow-test && go build -o meadow-test ./cmd/meadow-test
 
 test:
 	@echo "Running all unit tests..."
@@ -133,10 +143,59 @@ test-e2e-short:
 	@echo "Running E2E tests (skipping integration tests)..."
 	go test -short -v ./test/e2e/...
 
+# Meadow Test - Declarative YAML Testing
+test-meadow:
+	@echo "Running meadow-test YAML tests..."
+	@echo "NOTE: Requires services running. Start with: make infra && make dev-mocks"
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
+	cd meadow-test && ./meadow-test run tests/
+
+test-meadow-v:
+	@echo "Running meadow-test YAML tests (verbose)..."
+	@echo "NOTE: Requires services running. Start with: make infra && make dev-mocks"
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
+	cd meadow-test && ./meadow-test run -v tests/
+
+test-meadow-integration:
+	@echo "Running meadow-test integration tests only..."
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
+	cd meadow-test && ./meadow-test run tests/integration/
+
+test-meadow-scenarios:
+	@echo "Running meadow-test scenario tests only..."
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
+	cd meadow-test && ./meadow-test run tests/scenarios/
+
+test-meadow-dry:
+	@echo "Dry-run meadow-test YAML tests (validate only)..."
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
+	cd meadow-test && ./meadow-test run --dry-run tests/
+
+install-meadow-test:
+	@echo "Installing meadow-test to GOPATH/bin..."
+	cd meadow-test && go install ./cmd/meadow-test
+	@echo "meadow-test installed! Run 'meadow-test --help' to get started."
+
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf orchid/tmp lotus/tmp ivy/tmp stem/tmp
 	rm -rf orchid/bin lotus/bin ivy/bin stem/bin
+	rm -f meadow-test/meadow-test
 
 # =============================================================================
 # Dependencies
@@ -154,6 +213,7 @@ tidy-individual:
 	cd orchid && GOWORK=$(PWD)/go.work go mod tidy
 	cd lotus && GOWORK=$(PWD)/go.work go mod tidy
 	cd ivy && GOWORK=$(PWD)/go.work go mod tidy
+	cd meadow-test && GOWORK=off go mod tidy
 
 vendor:
 	@echo "Vendoring workspace dependencies..."

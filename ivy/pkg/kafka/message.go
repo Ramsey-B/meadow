@@ -17,6 +17,10 @@ type IncomingMessage struct {
 	Timestamp time.Time
 	Topic     string
 
+	// Trace context (extracted from Kafka headers)
+	TraceParent string
+	TraceState  string
+
 	// Parsed content
 	LotusMessage  *models.LotusMessage
 	DeleteMessage *models.LotusDeleteMessage

@@ -1,89 +1,809 @@
-This project is a microservice within a larger data engineering platform. This project is responsible for api polling.
+# Orchid
 
-Orchid is responsible for allowing users to define plans for extracting data from a 3rd party api. It's intended to be robust and reliable. It will expose endpoints for tracking statuses and managing and updating the plans and secrets.
+**API Polling and Data Extraction Service**
 
-Data will be polled out of the external api and emitted onto a kafka queue for the rest of the system. Orchid emits raw data as received from the APIs - data transformations are handled by the sister project "Lotus".
+Orchid is the first stage of the Meadow data integration pipeline. It polls external APIs on configurable schedules, handles authentication flows, manages rate limiting, and emits raw API responses to Kafka for downstream transformation by Lotus and entity resolution by Ivy.
+
+## Overview
+
+```
+Orchid (Extract) → Lotus (Transform) → Ivy (Merge & Deduplicate)
+```
+
+### Core Responsibilities
+
+1. **Poll** - Execute API calls to external systems on configurable schedules
+2. **Authenticate** - Manage OAuth flows, token caching, and credential rotation
+3. **Extract** - Retrieve raw data from 3rd party APIs with pagination support
+4. **Rate Limit** - Respect API rate limits with dynamic header-based adjustments
+5. **Fanout** - Execute nested sub-steps with configurable concurrency
+6. **Emit** - Publish raw API responses to Kafka for downstream processing
+
+### Key Features
+
+- **Declarative Plan Definitions**: JSON-based workflow definitions with conditional logic
+- **Complex Workflows**: Pagination (while loops), nested sub-steps (fanout), retries, conditionals
+- **OAuth & Token Management**: Configurable auth flows with Redis caching and automatic refresh
+- **Dynamic Rate Limiting**: Extract rate limits from API response headers
+- **Horizontal Scalability**: Redis Streams job queue for distributed execution
+- **Expression Templating**: JMESPath for dynamic URL, header, and body generation
+- **Multi-Tenancy**: Complete tenant isolation with per-tenant configurations
+- **Observability**: OpenTelemetry tracing, Prometheus metrics, structured logging
+- **Dead Letter Queue**: Failed job recovery with manual retry capability
+
+## Architecture
+
+### Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Web Framework** | Echo v4 (HTTP), Ectoinject (DI) |
+| **Database** | PostgreSQL with Citus extension (multi-tenant ready) |
+| **Message Queue** | Apache Kafka (segmentio/kafka-go) |
+| **Job Queue** | Redis Streams (distributed work distribution) |
+| **Caching** | Redis (auth tokens, rate limits, locks) |
+| **Scheduling** | Cron-based polling (every 30s) with distributed locks |
+| **Observability** | OpenTelemetry (OTLP), Prometheus, Zap logging |
+| **Configuration** | Environment variables (Ectoinject) |
+
+### System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Orchid Service (Go)                              │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                      Scheduler                                    │  │
+│  │  • Polls every 30s for due plans                                 │  │
+│  │  • Distributed locking via Redis                                 │  │
+│  │  • Creates jobs in Redis Streams queue                           │  │
+│  └──────────────────────┬───────────────────────────────────────────┘  │
+│                         │                                                │
+│                         ▼                                                │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                   Redis Streams Queue                             │  │
+│  │  Stream: orchid:jobs                                              │  │
+│  │  Consumer Group: orchid-workers                                   │  │
+│  │  Job Type: plan_execution                                         │  │
+│  └──────────────────────┬───────────────────────────────────────────┘  │
+│                         │                                                │
+│                         ▼                                                │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                   Queue Processor                                 │  │
+│  │  • Consumes jobs from Redis Streams                               │  │
+│  │  • Claims stale jobs                                              │  │
+│  │  • Invokes PlanExecutor                                           │  │
+│  │  • Moves failed jobs to DLQ                                       │  │
+│  └──────────────────────┬───────────────────────────────────────────┘  │
+│                         │                                                │
+│                         ▼                                                │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                    Plan Executor                                  │  │
+│  │  1. Load plan definition & config                                │  │
+│  │  2. Execute auth flow (if configured)                            │  │
+│  │     └─> AuthManager (Redis-cached tokens)                        │  │
+│  │  3. Execute steps sequentially                                   │  │
+│  │     ├─> StepExecutor (HTTP requests)                             │  │
+│  │     │   └─> Rate Limiter (Redis-backed)                          │  │
+│  │     ├─> While loops (pagination)                                 │  │
+│  │     ├─> FanoutExecutor (parallel sub-steps)                      │  │
+│  │     │   └─> Configurable concurrency (default: 50)               │  │
+│  │     └─> Conditional logic (abort_when, retry_when, break_when)  │  │
+│  │  4. Emit responses to Kafka                                      │  │
+│  │  5. Update execution status in PostgreSQL                        │  │
+│  └──────────────────────┬───────────────────────────────────────────┘  │
+└─────────────────────────┼────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           External APIs                                  │
+│  • OAuth providers, REST APIs, webhooks                                 │
+│  • Rate limited, paginated responses                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Kafka Topics                                     │
+│  api-responses ─────────────────────────────────────────────────────┐   │
+│  api-errors (DLQ for failed responses) ─────────────────────────────┤   │
+└─────────────────────────────────────────────────────────────────────┼───┘
+                                                                      │
+                                                                      ▼
+                                              ┌───────────────────────────┐
+                                              │  Lotus (Transform)        │
+                                              │  Consumes api-responses   │
+                                              └───────────────────────────┘
+                                                                      │
+                                                                      ▼
+                                              ┌───────────────────────────┐
+                                              │  PostgreSQL Database      │
+                                              │  • Plans, Configs         │
+                                              │  • Integrations           │
+                                              │  • Executions             │
+                                              │  • Statistics             │
+                                              └───────────────────────────┘
+```
+
+### Core Components
+
+| Component | Location | Responsibility |
+|-----------|----------|----------------|
+| **Scheduler** | [pkg/scheduler/scheduler.go](pkg/scheduler/scheduler.go) | Polls enabled plans every 30s, enqueues jobs in Redis Streams |
+| **Queue Processor** | [pkg/queue/processor.go](pkg/queue/processor.go) | Consumes jobs from Redis Streams, invokes PlanExecutor |
+| **Plan Executor** | [pkg/execution/plan_executor.go](pkg/execution/plan_executor.go) | Orchestrates plan execution with auth, rate limiting, step execution |
+| **Step Executor** | [pkg/execution/executor.go](pkg/execution/executor.go) | Executes individual HTTP requests with retries and conditionals |
+| **Fanout Executor** | [pkg/execution/fanout.go](pkg/execution/fanout.go) | Executes parallel sub-steps with configurable concurrency |
+| **Auth Manager** | [pkg/auth/manager.go](pkg/auth/manager.go) | Manages OAuth tokens with Redis caching and automatic refresh |
+| **Rate Limiter** | [pkg/ratelimit/limiter.go](pkg/ratelimit/limiter.go) | Redis-backed rate limiting with dynamic header extraction |
+| **HTTP Client** | [pkg/httpclient/client.go](pkg/httpclient/client.go) | HTTP wrapper with template substitution and response parsing |
+| **Kafka Producer** | [pkg/kafka/producer.go](pkg/kafka/producer.go) | Publishes API responses and execution events to Kafka |
+| **Expression Evaluator** | [pkg/expressions/expressions.go](pkg/expressions/expressions.go) | JMESPath template evaluation for URLs, headers, bodies |
+
+## HTTP API Endpoints
+
+All endpoints are served under `/api/v1` with tenant-based authentication.
+
+### Integration Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/integrations` | List all integrations |
+| POST | `/api/v1/integrations` | Create integration with config schema |
+| GET | `/api/v1/integrations/:id` | Get integration by ID |
+| PUT | `/api/v1/integrations/:id` | Update integration |
+| DELETE | `/api/v1/integrations/:id` | Delete integration |
+
+**Integration**: Defines an external API system (e.g., Salesforce, HubSpot) with optional config schema for credentials.
+
+### Configuration Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/configs` | List configs (requires `integration_id` query param) |
+| POST | `/api/v1/configs` | Create config with credentials |
+| GET | `/api/v1/configs/:id` | Get config by ID |
+| PUT | `/api/v1/configs/:id` | Update config values |
+| DELETE | `/api/v1/configs/:id` | Delete config |
+| POST | `/api/v1/configs/:id/enable` | Enable configuration |
+| POST | `/api/v1/configs/:id/disable` | Disable configuration |
+
+**Config**: Tenant-specific credentials and settings for an integration (API keys, base URLs, etc.).
+
+### Authentication Flow Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/auth-flows` | List auth flows (requires `integration_id` query param) |
+| POST | `/api/v1/auth-flows` | Create OAuth/token auth flow |
+| GET | `/api/v1/auth-flows/:id` | Get auth flow by ID |
+| PUT | `/api/v1/auth-flows/:id` | Update auth flow definition |
+| DELETE | `/api/v1/auth-flows/:id` | Delete auth flow |
+
+**Auth Flow**: Defines how to obtain and refresh authentication tokens (OAuth 2.0, API keys, custom flows).
+
+### Plan Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/plans` | List plans (supports `integration_id`, `enabled` query params) |
+| POST | `/api/v1/plans` | Create plan with workflow definition |
+| GET | `/api/v1/plans/:key` | Get plan by key (string identifier) |
+| PUT | `/api/v1/plans/:key` | Update plan definition |
+| DELETE | `/api/v1/plans/:key` | Delete plan |
+| PATCH | `/api/v1/plans/:key/enabled` | Enable/disable plan |
+| POST | `/api/v1/plans/:key/trigger` | Manually trigger plan execution |
+
+**Plan**: Declarative workflow definition specifying how to extract data from an API.
+
+### Execution Management
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/executions` | List executions (supports `plan_key`, `status` query params) |
+| GET | `/api/v1/executions/:id` | Get execution details by ID |
+| GET | `/api/v1/executions/:id/children` | List child executions (sub-steps) |
+
+**Execution**: Tracks plan execution history, status, and timing.
+
+### Statistics
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/statistics` | List statistics (requires `plan_key` query param) |
+| GET | `/api/v1/statistics/:plan_key/:config_id` | Get stats for specific plan/config |
+
+**Statistics**: Aggregated metrics (last_run, success_count, failure_count, API call count).
+
+### Dead Letter Queue (DLQ)
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/dlq` | List failed jobs (supports `count` query param) |
+| GET | `/api/v1/dlq/stats` | Get DLQ statistics |
+| GET | `/api/v1/dlq/:id` | Get specific DLQ entry |
+| POST | `/api/v1/dlq/:id/retry` | Re-enqueue failed job |
+| DELETE | `/api/v1/dlq/:id` | Remove DLQ entry |
+
+**DLQ**: Failed execution jobs that can be inspected and manually retried.
+
+### Health & Metrics
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/health` | Health check (database, Redis connectivity) |
+| GET | `/healthz` | Kubernetes readiness probe |
+| GET | `/live` | Kubernetes liveness probe |
+| GET | `/metrics` | Prometheus metrics |
+
+### Authentication
+
+**Development Mode** (`AUTH_ENABLED=false`):
+- Uses `TestAuthMiddleware` to extract tenant/user from headers
+- Required headers: `X-Tenant-ID`, `X-User-ID`
+
+**Production Mode** (`AUTH_ENABLED=true`):
+- OAuth2/OIDC authentication via configured issuer
+- Environment variables: `AUTH_ISSUER_URL`, `AUTH_CLIENT_ID`
+
+All endpoints enforce tenant isolation.
+
+## Kafka Integration
+
+### Messages Produced
+
+#### `api-responses` Topic
+
+**Purpose**: Publish raw API response data for downstream consumption by Lotus
+
+**Message Format**:
+```json
+{
+  "tenant_id": "tenant-123",
+  "integration": "salesforce",
+  "plan_key": "contacts-sync",
+  "config_id": "config-789",
+  "execution_id": "exec-456",
+  "step_path": "fetch_contacts.get_details",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "trace_id": "abc123...",
+  "span_id": "def456...",
+  "request_url": "https://api.salesforce.com/contacts/00Q123",
+  "request_method": "GET",
+  "request_headers": {
+    "Authorization": "Bearer token123",
+    "Content-Type": "application/json"
+  },
+  "status_code": 200,
+  "response_body": {
+    "id": "00Q123",
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "john.doe@example.com"
+  },
+  "response_headers": {
+    "Content-Type": "application/json",
+    "X-RateLimit-Remaining": "4999"
+  },
+  "response_size": 1024,
+  "duration_ms": 250,
+  "extracted_data": {
+    "user_id": "00Q123"
+  }
+}
+```
+
+**Kafka Headers**:
+- `tenant_id`: Tenant identifier
+- `integration`: Integration name
+- `plan_key`: Plan identifier
+- `execution_id`: Execution identifier
+- `traceparent`: W3C Trace Context format
+- `tracestate`: W3C Trace State
+
+**Message Key**: `{tenant_id}:{execution_id}` (ensures partition affinity)
+
+**Special Handling**:
+- When using fanout (`iterate_over`), `response_body` is always a JSON array
+- Each array item is enriched with sub-step outputs as additional fields
+
+#### `api-errors` Topic
+
+**Purpose**: Capture failed API responses based on step policies
+
+**When Published**:
+- HTTP status codes match `abort_on` or `ignore_on` step configuration
+- Step execution fails after max retries
+- Rate limit exceeded and cannot wait
+
+**Message Format**: Same as `api-responses` but routed to error topic
+
+#### Execution Event Messages
+
+**Purpose**: Lifecycle events for plan executions (used by Ivy for execution-based deletion)
+
+**Event Types**:
+- `execution.started` - Plan execution begins
+- `execution.completed` - Plan execution ends (status: success, failed, aborted)
+
+**Message Format**:
+```json
+{
+  "type": "execution.completed",
+  "tenant_id": "tenant-123",
+  "integration": "salesforce",
+  "plan_key": "contacts-sync",
+  "config_id": "config-789",
+  "execution_id": "exec-456",
+  "status": "success",
+  "timestamp": "2024-01-15T10:35:00Z"
+}
+```
+
+### Kafka Configuration
+
+**Environment Variables**:
+
+```bash
+# Broker Configuration
+KAFKA_BROKERS=localhost:9092
+
+# Topics
+KAFKA_RESPONSE_TOPIC=api-responses
+KAFKA_ERROR_TOPIC=api-errors
+
+# Producer Settings (hardcoded in code)
+# - Batch size: 100 messages
+# - Batch timeout: 10ms
+# - Required acks: 1 (leader acknowledgement)
+# - Balancer: LeastBytes
+# - Auto topic creation: enabled
+```
+
+## Plan Definition Structure
+
+Plans are JSON documents that define the extraction workflow.
+
+### Basic Plan Example
+
+```json
+{
+  "key": "salesforce-contacts",
+  "integration": "salesforce",
+  "wait_seconds": 3600,
+  "enabled": true,
+  "step": {
+    "url": "{config.base_url}/api/contacts",
+    "method": "GET",
+    "headers": {
+      "Authorization": "Bearer {auth.token}",
+      "Content-Type": "application/json"
+    },
+    "params": {
+      "limit": "100",
+      "offset": "{context.next_offset || '0'}"
+    },
+    "while": "response.body.has_more == true",
+    "context_updates": {
+      "next_offset": "response.body.next_offset"
+    }
+  }
+}
+```
+
+### Plan with Fanout (Nested Sub-Steps)
+
+```json
+{
+  "key": "contacts-with-details",
+  "step": {
+    "url": "{config.base_url}/api/contacts",
+    "method": "GET",
+    "sub_steps": [
+      {
+        "iterate_over": "response.body.contacts[*]",
+        "concurrency": 50,
+        "url": "{config.base_url}/api/contacts/{item.id}/details",
+        "method": "GET",
+        "emit_to_kafka": true
+      }
+    ]
+  },
+  "rate_limits": [
+    {
+      "requests": 100,
+      "window_secs": 60,
+      "scope": "per_config"
+    }
+  ]
+}
+```
+
+### Step Configuration Options
+
+**Core Fields**:
+- `url`: URL template with variable substitution
+- `method`: HTTP method (GET, POST, PUT, DELETE, PATCH)
+- `headers`: Key-value map with template support
+- `params`: Query/path parameters with template support
+- `body`: Request body (JSON, form data, or template string)
+
+**Control Flow**:
+- `while`: JMESPath condition for loop continuation (pagination)
+- `abort_when`: JMESPath condition to abort execution
+- `retry_when`: JMESPath condition to retry request
+- `break_when`: JMESPath condition to exit current loop
+- `emit_to_kafka`: Boolean to control message emission (default: true)
+
+**Error Handling**:
+- `abort_on`: HTTP status codes that abort execution (e.g., `[401, 403]`)
+- `ignore_on`: HTTP status codes to route to error topic and continue (e.g., `[404]`)
+- `retry`: Retry configuration with max attempts and backoff
+
+**Sub-Steps (Fanout)**:
+- `sub_steps`: Array of nested step definitions
+- `iterate_over`: JMESPath expression for array iteration
+- `concurrency`: Max parallel executions (default: 50)
+- `fanout_emit_mode`: "record" (one message per item) or "page" (one message per batch)
+
+**Rate Limiting**:
+- `rate_limits`: Array of rate limit configurations
+  - `requests`: Number of requests allowed
+  - `window_secs`: Time window in seconds
+  - `scope`: "per_config", "per_endpoint", or "global"
+  - `priority`: Priority level (higher = more important)
+
+**Context Management**:
+- `context_updates`: Map of context field updates using JMESPath expressions
+- `extract`: Extract specific fields from response for downstream use
+
+### Template Variables
+
+Plans can reference dynamic values using `{variable.path}` syntax:
+
+- `{config.*}` - Configuration values (API keys, base URLs)
+- `{auth.*}` - Authentication tokens and headers
+- `{context.*}` - Persistent context fields
+- `{response.*}` - Current step response (body, headers, status_code)
+- `{prev.*}` - Previous iteration response (in while loops)
+- `{parent.*}` - Parent step response (in sub-steps)
+- `{item.*}` - Current iteration item (in fanout sub-steps)
+
+**Example**:
+```
+URL: "{config.base_url}/users/{item.id}"
+Header: "Authorization: Bearer {auth.access_token}"
+Param: "since={context.last_sync_time}"
+```
+
+## Execution Flow
+
+### Plan Execution Lifecycle
+
+```
+1. Scheduler Polls (every 30s)
+   ↓
+2. Check if plan+config is due
+   ↓
+3. Enqueue job in Redis Streams (orchid:jobs)
+   ↓
+4. Queue Processor claims job
+   ↓
+5. PlanExecutor.Execute()
+   ├─> Load plan definition & config from PostgreSQL
+   ├─> Execute auth flow (if configured)
+   │   └─> AuthManager checks Redis cache
+   │       └─> If expired, execute auth plan & cache token
+   ├─> For each step in plan:
+   │   ├─> Apply rate limiting (check Redis counters)
+   │   ├─> Build request (template substitution)
+   │   ├─> StepExecutor.Execute()
+   │   │   ├─> Make HTTP request
+   │   │   ├─> Handle retries (Fibonacci backoff)
+   │   │   ├─> Evaluate conditionals (abort_when, retry_when, break_when)
+   │   │   └─> Return response
+   │   ├─> Check while condition (pagination)
+   │   ├─> Execute sub-steps (fanout)
+   │   │   └─> FanoutExecutor (parallel execution, concurrency control)
+   │   ├─> Emit to Kafka (api-responses or api-errors)
+   │   └─> Update context
+   ├─> Update execution status in PostgreSQL
+   └─> Publish execution.completed event
+```
+
+### Authentication Flow
+
+```
+1. PlanExecutor checks if auth_flow_id is configured
+   ↓
+2. AuthManager.GetAuth(config_id, auth_flow_id)
+   ├─> Check Redis cache for token
+   │   └─> Key: auth:{tenant_id}:{config_id}:{auth_flow_id}
+   ├─> If cached and not expired:
+   │   └─> Return cached token
+   └─> If missing or expired:
+       ├─> Execute auth flow plan (separate plan execution)
+       ├─> Extract token from response using token_path JMESPath
+       ├─> Cache in Redis with TTL (accounting for skew)
+       └─> Return token
+   ↓
+3. Token available as {auth.token} or {auth.*} in step templates
+```
+
+### Rate Limiting Flow
+
+```
+1. StepExecutor prepares to make HTTP request
+   ↓
+2. RateLimiter.Wait(endpoint, config)
+   ├─> Load rate limit rules for endpoint/scope
+   ├─> Check Redis counters for current window
+   │   └─> Key pattern: ratelimit:{scope}:{identifier}:{window}
+   ├─> If limit exceeded:
+   │   ├─> Calculate wait time until next window
+   │   ├─> If wait time > max_wait (60s):
+   │   │   └─> Return error (route to api-errors topic)
+   │   └─> Sleep until window resets
+   └─> Increment counter in Redis
+   ↓
+3. HTTP request proceeds
+   ↓
+4. Extract dynamic rate limit from response headers (if configured)
+   ├─> X-RateLimit-Remaining
+   ├─> X-RateLimit-Reset
+   ├─> Retry-After
+   └─> Update Redis counters based on header values
+```
+
+### Retry Logic
+
+```
+1. StepExecutor makes HTTP request
+   ↓
+2. Check response status and conditions
+   ├─> If status in abort_on → abort execution
+   ├─> If status in ignore_on → route to error topic, continue
+   ├─> If retry_when condition is true:
+   │   ├─> Check retry count < max_retries
+   │   ├─> Calculate Fibonacci backoff with jitter
+   │   │   └─> Sequence: 1s, 1s, 2s, 3s, 5s, 8s, 13s, 21s...
+   │   │   └─> Max backoff: 60s (configurable)
+   │   ├─> Sleep for backoff duration
+   │   └─> Retry request
+   └─> If all retries exhausted → route to error topic
+```
 
 ## Configuration
 
-Most APIs will require that the specific fields and secrets be provided. Users will need to define a config schema. When enabling, the users will also need to provide values for these configs. In theory the users can provide multiple configs for the same integration.
+### Database
 
-## Auth
+```bash
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER_NAME=postgres
+DB_PASSWORD=postgres
+DB_NAME=orchid
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_MIGRATION_FOLDER_PATH=db/pg
+```
 
-Many apis require an auth flow for things like getting tokens. Users will need the ability to define auth mechanisms for the API to generate and potentially refresh the auth. We will also need the ability to optionally define a cache and ttl management for the auth and likely a skew mechanism.
+### Redis
 
-## api plans
+```bash
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+```
 
-This is the meat of Orchid. Users will define plans on HOW to get the data out of the 3rd party api. Each integration will have a set of Plans, these plans will run independently, meaning a plan that gets Users won't be impacted by the plan that gets Devices. Each plan can have a set of sub-steps like get Users may have sub steps where each Users settings are fetched. Sub-steps may also have their own sub-steps
+### Kafka
 
-Users will define a `wait` which will determine how long we will wait between executions of the plan.
+```bash
+KAFKA_BROKERS=localhost:9092
+KAFKA_RESPONSE_TOPIC=api-responses
+KAFKA_ERROR_TOPIC=api-errors
+```
 
-Users may define a `repeat_count` which will define how many times the plan will be executed. If not set it will be run infinitely.
+### Scheduling
 
-Users may enable/disable the plans at anytime.
+```bash
+SCHEDULER_ENABLED=true
+SCHEDULER_POLL_INTERVAL=30s
+REDIS_STREAMS_JOB_QUEUE=orchid:jobs
+REDIS_STREAMS_CONSUMER_GROUP=orchid-workers
+```
 
-Users will define the url schema like `{base_url}/api/users/{user_id}`
+### Execution Limits
 
-Users may define the params which will replace the path parameters in the url schema. If the param name does not match a value in the url schema then it is treated as a query parameter. Param values can be static strings or JMESPath expressions that extract data from `response`, `parent`, `context`, `config`, `auth`, or `item` (when iterating in sub-steps).
+```bash
+MAX_EXECUTION_TIME=5m
+MAX_LOOPS=1000
+MAX_NESTING_DEPTH=5
+DEFAULT_CONCURRENCY=50
+```
 
-Users may define headers. Header values can be static strings or JMESPath expressions, similar to params.
+### Observability
 
-Users may define a request body.
+```bash
+# Tracing
+OTLP_ENABLED=false
+OTLP_ENDPOINT=localhost:4317
+OTLP_PROTOCOL=grpc  # or http
 
-Users will define the request method (GET, POST, PUT, etc)
+# Logging
+LOG_LEVEL=info
+PRETTY_LOGS=true
+```
 
-Users may optionally define sub-steps which will have the same functions as the plan but without things like `repeat_count`, or `wait`. Sub-steps can iterate over arrays in the parent response using an `iterate_over` field that specifies a JMESPath expression. Each item in the array is passed to the sub-step as `item`, allowing the sub-step to execute for each item concurrently. Users can configure concurrency limits per sub-step to control fanout behavior.
+### Authentication
 
-Users may define a `while`. This is a condition that will cause the plan/step to immediately rerun if true. This can be useful for things like pagination. If not provided the plan is called once then enters its wait.
+```bash
+AUTH_ENABLED=false
+AUTH_ISSUER_URL=
+AUTH_CLIENT_ID=
+```
 
-Users may define a `abort_when`. A condition which causes the plan to stop execution and not rerun. This is intended to handle conditions like 403 errors that are unrecoverable.
+### HTTP Server
 
-Users may define a `retry_when`. A condition which causes the plan to immediately re attempt the request. This is intended to help with transient errors. Users can define retry events (conditions that trigger retries) and maximum retry counts per plan/step.
+```bash
+PORT=8080
+HTTP_SERVER_READ_TIMEOUT_SECONDS=30
+HTTP_SERVER_WRITE_TIMEOUT_SECONDS=30
+HTTP_SERVER_IDLE_TIMEOUT_SECONDS=60
+```
 
-Users may define a `break_when`. A condition which causes the plan to exit the current while when true.
+## Operational Limits and Constraints
 
-We should maximize concurrency especially with things like fanout but we may want to run the plans across multiple Orchid instances. To enable horizontal scaling, plan/step execution will be enqueued using Redis Streams for job distribution. Multiple Orchid instances consume work from the queue, ensuring plans are executed reliably even if individual instances fail. Redis is also used for sharing locks, coordinating state, and rate limit counters across instances. Data is emitted to Kafka for the rest of the system.
+### Performance Limits
 
-We should record useful statistics for the plans, things like last execution, last failure, last success, number of api calls, etc.
+| Limit | Default | Configurable | Purpose |
+|-------|---------|--------------|---------|
+| **Response Size** | 10MB | No | Maximum API response body size (Kafka limit) |
+| **Request Body Size** | 5MB | Per-step | Maximum request body size |
+| **Execution Timeout** | 5 minutes | `MAX_EXECUTION_TIME` | Per-plan timeout |
+| **Sub-Step Concurrency** | 50 | Per sub-step | Parallel fanout executions |
+| **Max Loops** | 1000 | `MAX_LOOPS` | While loop iterations |
+| **Max Nesting Depth** | 5 | `MAX_NESTING_DEPTH` | Sub-step nesting levels |
+| **Context Size** | 64KB per field, 1MB total | No | Persistent context limits |
+| **Retry Backoff Max** | 60 seconds | Configurable | Maximum retry wait time |
 
-### plan arguments
+### Retry Strategy
 
-plans and their sub-steps will be provided with the following arguments they can access:
+**Fibonacci Backoff**: Grows more slowly than exponential, less aggressive on APIs
+- Sequence: 1s, 1s, 2s, 3s, 5s, 8s, 13s, 21s, 34s, 55s, 60s (max)
+- Jitter applied to prevent thundering herd
+- Configurable max backoff (default: 60s)
 
-- `config`: This is the config the user defined. This is important for accessing values like secret keys and base urls
-- `auth`: This is the result of an auth pre-step that can be executed prior to the plan/step execution
-- `context`: This will include metadata about the plan. Such as the last successful execution time, current time, custom context fields saved by previous executions. Can also include an execution count while in a while loop.
-- `response.status_code` & `response.headers` & `response.body`: After the api call is made this is populated with the response data.
-- `prev.headers` & `prev.body`: If the plan/step is executed in a loop, this is the previous api response headers/body. So if this plan is paginated page 1 this value is null but page 2 this will be the headers/body from page 1s response.
-- `parent.headers` & `parent.body`: This is set of sub-steps to access the parent plan/step information.
-- `item`: When a sub-step uses `iterate_over` to fanout over an array, each item from the array is available as `item`. For example, if iterating over `parent.body.users`, each sub-step execution receives one user object as `item`.
+### Supported Response Formats
 
-### Rate limiting
+- **JSON**: Primary format, native parsing
+- **XML**: Converted to JSON for processing
+- **CSV**: Handled as needed
+- **Binary**: Base64 encoded for Kafka emission
 
-Many apis define rate limits, throttle, or apply concurrency limits. We need to gracefully handle these things for the users. These values should be configurable down to the api endpoint, groups of endpoints, or even for the entire set of api endpoints.
+### Horizontal Scaling
 
-- We should allow for configuring requests per time window
-- We should allow for prioritizing api calls so if an endpoint shares a rate limit with other endpoints, the users can define the endpoints that should get priority
-- We should allow for concurrency limitations. Some endpoints only allow a certain number of in flight calls at a time.
-- We should support dynamic rate limiting based on API response headers. Users can define JMESPath expressions to extract rate limit information from response headers (e.g., `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`). The system will automatically adjust rate limits based on these values, allowing it to adapt to APIs that provide real-time rate limit information.
+- **Job Distribution**: Redis Streams ensures work is distributed across instances
+- **No Per-Instance Limits**: Natural scaling through Go concurrency
+- **Shared State**: Redis for locks, rate limits, auth cache
+- **Database**: PostgreSQL with Citus for multi-tenant horizontal scaling
 
-**Dynamic Rate Limiting Examples:**
+## Getting Started
 
-- Extract remaining requests: `response.headers['X-RateLimit-Remaining']`
-- Extract reset timestamp: `response.headers['X-RateLimit-Reset']`
-- Extract retry delay: `response.headers['Retry-After']`
-- Extract limit per window: `response.headers['X-RateLimit-Limit']`
+### Prerequisites
 
-The system will use these values to dynamically adjust rate limiting, falling back to static configuration when headers are not present. Rate limit state is shared across all Orchid instances via Redis to ensure consistent behavior in a distributed environment.
+- Go 1.21+
+- PostgreSQL 15+
+- Redis 6.0+
+- Apache Kafka 3.0+
 
-### Operational Limits and Constraints
+### Environment Setup
 
-- **Response Formats**: JSON is the primary supported format. XML responses are converted to JSON for parsing. Other formats (CSV, binary) are handled as needed, with binary data base64 encoded for Kafka emission.
-- **Sub-Step Concurrency**: Default of 50 concurrent sub-steps per parent execution, configurable per sub-step.
-- **Context Size**: Maximum 64KB per context field, 1MB total context size per plan/config.
-- **Response Size**: Maximum 10MB response body size (limited by Kafka message size constraints).
-- **Plan Nesting Depth**: Maximum 5 levels of sub-step nesting, configurable via environment variable.
-- **Horizontal Scaling**: Plan/step execution is enqueued using Redis Streams for job distribution. Multiple Orchid instances consume from the queue, with no hard limit on concurrent plans per instance - scaling is handled naturally through horizontal scaling and Go's concurrency model.
-- **Request Body Size**: Maximum 5MB request body size, configurable per plan/step.
-- **Execution Timeout**: Default 5 minutes per step, configurable per plan/step.
-- **Retry Backoff**: Fibonacci backoff sequence (1s, 1s, 2s, 3s, 5s, 8s, 13s...) with jitter and maximum backoff limit. Fibonacci grows more slowly than exponential backoff, making it less aggressive on APIs while still providing good retry spacing. Maximum backoff prevents excessive wait times (configurable, default 60s).
+Create a `.env` file:
+
+```bash
+# Application
+APP_NAME=orchid
+PORT=8080
+LOG_LEVEL=info
+
+# Database
+DATABASE_URL=postgres://user:password@localhost:5432/orchid?sslmode=disable
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Kafka
+KAFKA_BROKERS=localhost:9092
+KAFKA_RESPONSE_TOPIC=api-responses
+KAFKA_ERROR_TOPIC=api-errors
+
+# Scheduler
+SCHEDULER_ENABLED=true
+SCHEDULER_POLL_INTERVAL=30s
+
+# Auth
+AUTH_ENABLED=false
+```
+
+### Running Locally
+
+1. **Install Dependencies**:
+   ```bash
+   go mod download
+   ```
+
+2. **Run Database Migrations**:
+   ```bash
+   migrate -path db/pg -database "$DATABASE_URL" up
+   ```
+
+3. **Start the Service**:
+   ```bash
+   go run cmd/main.go
+   ```
+
+4. **Verify Health**:
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+### Docker Setup
+
+```bash
+docker-compose up -d
+```
+
+Includes: PostgreSQL, Redis, Kafka, Zookeeper
+
+## Development
+
+### Project Structure
+
+```
+orchid/
+├── cmd/                    # Application entry point, DI, routing
+├── config/                 # Configuration management (30+ env vars)
+├── db/pg/                  # PostgreSQL migrations
+├── internal/handlers/      # HTTP endpoint handlers
+├── pkg/
+│   ├── auth/              # OAuth token caching & flow execution
+│   ├── execution/         # Plan/step/fanout execution engines
+│   ├── expressions/       # JMESPath templating
+│   ├── httpclient/        # HTTP request builder
+│   ├── kafka/             # Kafka producer
+│   ├── queue/             # Redis Streams job processor
+│   ├── ratelimit/         # Redis-backed rate limiting
+│   ├── redis/             # Redis client, locks, DLQ
+│   ├── repositories/      # Database CRUD
+│   └── scheduler/         # Cron polling
+└── CONSUMER_GUIDE.md      # Kafka message documentation
+```
+
+### Testing
+
+```bash
+# Unit tests
+go test ./...
+
+# With coverage
+go test -cover ./...
+
+# Integration tests
+go test ./test/integration/...
+```
+
+## Architecture Decisions
+
+1. **Redis Streams for Job Queue**: Distributed, fault-tolerant work distribution across instances
+2. **Declarative Plans**: JSON-based definitions enable version control and UI generation
+3. **JMESPath Templating**: Industry-standard expression language for dynamic values
+4. **Fibonacci Backoff**: Less aggressive than exponential, better for API relationships
+5. **Token Caching**: Redis caching reduces auth overhead and API calls
+6. **Dynamic Rate Limiting**: Adapts to API-provided rate limit information
+7. **Fanout with Concurrency Control**: Maximizes throughput while respecting limits
+8. **Multi-Tenancy**: Composite primary keys enable horizontal scaling with Citus
+
+## License
+
+Proprietary - Meadow Platform

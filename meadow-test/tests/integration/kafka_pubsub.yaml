@@ -1,0 +1,39 @@
+name: Kafka Publish and Consume
+description: Test publishing a message to Kafka and consuming it back
+
+steps:
+  # Publish a message with a unique message ID we can identify
+  - publish_kafka:
+      topic: meadow-test-pubsub
+      key: "test-key-{{uuid}}"
+      value:
+        test_id: "{{uuid}}"
+        message: "Hello from meadow-test"
+        timestamp: "{{timestamp}}"
+        data:
+          user_id: "user-123"
+          name: "Test User"
+          email: "test@example.com"
+      headers:
+        source: meadow-test
+
+  # Wait a moment for the message to be available
+  - wait:
+      duration: 1s
+      reason: Allow message to be committed
+
+  # Consume and verify a message (from earliest offset with new consumer group)
+  # This test verifies that Kafka pub/sub is working
+  - assert_kafka_message:
+      topic: meadow-test-pubsub
+      timeout: 30s
+      consume_from: earliest
+      assertions:
+        - field: message
+          equals: "Hello from meadow-test"
+        - field: data.user_id
+          equals: "user-123"
+        - field: data.name
+          equals: "Test User"
+      save_as: consumed_message
+

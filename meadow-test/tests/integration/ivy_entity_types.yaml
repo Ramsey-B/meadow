@@ -1,0 +1,116 @@
+name: Ivy Entity Types and Match Rules
+description: Test creating entity types, relationship types, and match rules in Ivy
+
+steps:
+  # Create a test entity type
+  # Note: key must be alphanumeric only (no underscores or dashes)
+  # Using a timestamp to make it unique since UUIDs contain dashes
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "testent{{timestamp}}"
+        name: "Test Entity"
+        description: "Entity type created by meadow-test"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "Entity name"
+              merge_strategy: most_recent
+            email:
+              type: string
+              format: email
+              description: "Email address"
+              merge_strategy: prefer_non_empty
+            status:
+              type: string
+              description: "Entity status"
+              merge_strategy: most_recent
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type_response
+
+  # Verify the entity type was created
+  - assert:
+      variable: entity_type_response.id
+      not_empty: true
+      message: Entity type ID should be returned
+
+  # List entity types
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types
+      expect:
+        status: 200
+      save_as: entity_types_list
+
+  # Create a match rule for this entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type_response.key}}"
+        name: "Test Email Match Rule"
+        description: "Match by exact email"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: email
+            match_type: exact
+            weight: 1.0
+            required: true
+            normalizer: lowercase
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: match_rule_response
+
+  # Verify the match rule was created
+  - assert:
+      variable: match_rule_response.id
+      not_empty: true
+      message: Match rule ID should be returned
+
+  # List match rules for this entity type
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules?entity_type={{entity_type_response.key}}
+      expect:
+        status: 200
+
+  # Validate some test data against the entity type schema
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type_response.key}}"
+        data:
+          email: "test@example.com"
+          name: "Test User"
+          status: "active"
+      expect:
+        status: 200
+
+cleanup:
+  # Delete match rule first
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{match_rule_response.id}}
+
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type_response.id}}
+

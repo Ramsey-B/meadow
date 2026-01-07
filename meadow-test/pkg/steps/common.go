@@ -1,0 +1,318 @@
+package steps
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"reflect"
+	"strings"
+	"time"
+)
+
+// TestContext interface for steps to interact with test execution context
+type TestContext interface {
+	Set(key string, value interface{})
+	Get(key string) (interface{}, bool)
+	Interpolate(input interface{}) interface{}
+	HTTPRequest(method, serviceOrURL, path string, headers map[string]string, body interface{}) (*http.Response, error)
+	Log(format string, args ...interface{})
+	Error(format string, args ...interface{})
+}
+
+// Wait implements the wait step
+func Wait(ctx TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("wait params must be a map")
+	}
+
+	durationStr, ok := paramsMap["duration"].(string)
+	if !ok {
+		return fmt.Errorf("wait duration must be a string")
+	}
+
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	reason := ""
+	if r, ok := paramsMap["reason"].(string); ok {
+		reason = r
+	}
+
+	if reason != "" {
+		ctx.Log("Waiting %s (%s)", duration, reason)
+	} else {
+		ctx.Log("Waiting %s", duration)
+	}
+
+	time.Sleep(duration)
+	return nil
+}
+
+// Assert implements the assert step
+func Assert(ctx TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("assert params must be a map")
+	}
+
+	// Get error message
+	message := "Assertion failed"
+	if msg, ok := paramsMap["message"].(string); ok {
+		message = ctx.Interpolate(msg).(string)
+	}
+
+	// Check for condition (boolean expression)
+	if condition, ok := paramsMap["condition"].(string); ok {
+		// Simple condition evaluation
+		interpolated := ctx.Interpolate(condition).(string)
+
+		// Basic checks
+		if strings.Contains(interpolated, "!=") {
+			parts := strings.Split(interpolated, "!=")
+			if len(parts) == 2 {
+				left := strings.TrimSpace(parts[0])
+				right := strings.TrimSpace(parts[1])
+				if left == right {
+					return fmt.Errorf("%s: %s != %s failed (both are %s)", message, parts[0], parts[1], left)
+				}
+			}
+		} else if strings.Contains(interpolated, "==") {
+			parts := strings.Split(interpolated, "==")
+			if len(parts) == 2 {
+				left := strings.TrimSpace(parts[0])
+				right := strings.TrimSpace(parts[1])
+				if left != right {
+					return fmt.Errorf("%s: %s == %s failed (%s vs %s)", message, parts[0], parts[1], left, right)
+				}
+			}
+		}
+		return nil
+	}
+
+	// Check for variable comparison
+	if variable, ok := paramsMap["variable"].(string); ok {
+		// Support nested variable paths (e.g., "response.id")
+		val := resolveNestedVariable(ctx, variable)
+
+		if equals, ok := paramsMap["equals"]; ok {
+			expectedVal := ctx.Interpolate(equals)
+			if !reflect.DeepEqual(val, expectedVal) {
+				return fmt.Errorf("%s: %s = %v, expected %v", message, variable, val, expectedVal)
+			}
+		}
+
+		if notEquals, ok := paramsMap["not_equals"]; ok {
+			unexpectedVal := ctx.Interpolate(notEquals)
+			if reflect.DeepEqual(val, unexpectedVal) {
+				return fmt.Errorf("%s: %s = %v, expected not equal to %v", message, variable, val, unexpectedVal)
+			}
+		}
+
+		// Check not_empty
+		if notEmpty, ok := paramsMap["not_empty"].(bool); ok && notEmpty {
+			if val == nil {
+				return fmt.Errorf("%s: %s is nil", message, variable)
+			}
+			// Check for empty string
+			if str, ok := val.(string); ok && str == "" {
+				return fmt.Errorf("%s: %s is empty string", message, variable)
+			}
+			// Check for empty slice/array
+			if reflect.ValueOf(val).Kind() == reflect.Slice && reflect.ValueOf(val).Len() == 0 {
+				return fmt.Errorf("%s: %s is empty array", message, variable)
+			}
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("assert requires either 'condition' or 'variable' parameter")
+}
+
+// resolveNestedVariable resolves a variable path like "response.id" or "response.data.name"
+func resolveNestedVariable(ctx TestContext, path string) interface{} {
+	parts := strings.Split(path, ".")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	// Get the root variable
+	val, found := ctx.Get(parts[0])
+	if !found {
+		return nil
+	}
+
+	// Navigate nested paths
+	for i := 1; i < len(parts); i++ {
+		if val == nil {
+			return nil
+		}
+
+		switch v := val.(type) {
+		case map[string]interface{}:
+			val = v[parts[i]]
+		default:
+			// Can't navigate further
+			return nil
+		}
+	}
+
+	return val
+}
+
+// HTTPRequest implements the http_request step
+func HTTPRequest(ctx TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("http_request params must be a map")
+	}
+
+	// Extract parameters
+	service, ok := paramsMap["service"].(string)
+	if !ok {
+		// Try url field
+		if url, ok := paramsMap["url"].(string); ok {
+			service = url
+		} else {
+			return fmt.Errorf("http_request requires 'service' or 'url'")
+		}
+	}
+
+	method := "GET"
+	if m, ok := paramsMap["method"].(string); ok {
+		method = strings.ToUpper(m)
+	}
+
+	path := ""
+	if p, ok := paramsMap["path"].(string); ok {
+		path = p
+	}
+
+	headers := make(map[string]string)
+	if h, ok := paramsMap["headers"].(map[string]interface{}); ok {
+		for k, v := range h {
+			if str, ok := v.(string); ok {
+				headers[k] = str
+			}
+		}
+	}
+
+	var body interface{}
+	if b, ok := paramsMap["body"]; ok {
+		body = b
+	}
+
+	// Make request
+	resp, err := ctx.HTTPRequest(method, service, path, headers, body)
+	if err != nil {
+		return fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Save response if requested
+	if saveAs, ok := paramsMap["save_as"].(string); ok {
+		var responseData interface{}
+		if err := json.Unmarshal(respBody, &responseData); err == nil {
+			ctx.Set(saveAs, responseData)
+		} else {
+			// Not JSON, save as string
+			ctx.Set(saveAs, string(respBody))
+		}
+	}
+
+	// Check expectations
+	if expect, ok := paramsMap["expect"].(map[string]interface{}); ok {
+		// Check status code (YAML may parse as int or float64)
+		if status, ok := expect["status"]; ok {
+			var expectedStatus int
+			switch s := status.(type) {
+			case int:
+				expectedStatus = s
+			case float64:
+				expectedStatus = int(s)
+			case int64:
+				expectedStatus = int(s)
+			default:
+				return fmt.Errorf("invalid status type: %T", status)
+			}
+
+			if resp.StatusCode != expectedStatus {
+				return fmt.Errorf("expected status %d, got %d: %s", expectedStatus, resp.StatusCode, string(respBody))
+			}
+		}
+
+		// Check response body
+		if expectedBody, ok := expect["body"]; ok {
+			var actualBody interface{}
+			if err := json.Unmarshal(respBody, &actualBody); err != nil {
+				return fmt.Errorf("failed to parse response as JSON: %w", err)
+			}
+
+			// Compare (simplified - just check some fields)
+			if err := compareJSON(expectedBody, actualBody, ctx); err != nil {
+				return fmt.Errorf("response body mismatch: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// compareJSON compares expected and actual JSON values (simplified comparison)
+func compareJSON(expected, actual interface{}, ctx TestContext) error {
+	// Interpolate expected values
+	expected = ctx.Interpolate(expected)
+
+	switch exp := expected.(type) {
+	case map[string]interface{}:
+		actMap, ok := actual.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("expected map, got %T", actual)
+		}
+
+		for key, expectedVal := range exp {
+			actualVal, ok := actMap[key]
+			if !ok {
+				return fmt.Errorf("missing field: %s", key)
+			}
+
+			if err := compareJSON(expectedVal, actualVal, ctx); err != nil {
+				return fmt.Errorf("field %s: %w", key, err)
+			}
+		}
+		return nil
+
+	case []interface{}:
+		actArr, ok := actual.([]interface{})
+		if !ok {
+			return fmt.Errorf("expected array, got %T", actual)
+		}
+
+		if len(exp) != len(actArr) {
+			return fmt.Errorf("expected array length %d, got %d", len(exp), len(actArr))
+		}
+
+		for i, expectedVal := range exp {
+			if err := compareJSON(expectedVal, actArr[i], ctx); err != nil {
+				return fmt.Errorf("index %d: %w", i, err)
+			}
+		}
+		return nil
+
+	default:
+		if !reflect.DeepEqual(expected, actual) {
+			return fmt.Errorf("expected %v, got %v", expected, actual)
+		}
+		return nil
+	}
+}

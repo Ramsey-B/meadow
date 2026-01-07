@@ -1,0 +1,14 @@
+name: Simple Kafka Test
+description: Test basic Kafka publishing (requires Kafka running)
+
+setup:
+  # Create the test topic first using kafka-topics command
+  # This step would normally be done via testcontainers or external setup
+
+steps:
+  - wait:
+      duration: 1s
+      reason: Allow topic to be ready
+
+  # For now, just validate the YAML structure
+  # Real Kafka tests require topic creation which needs admin access

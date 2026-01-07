@@ -1,0 +1,137 @@
+name: Lotus Mapping and Binding CRUD
+description: Test creating, testing, and deleting Lotus mapping definitions and bindings
+
+steps:
+  # Create a simple mapping definition
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "Test User Mapping {{uuid}}"
+        key: "test-user-mapping-{{uuid}}"
+        description: "Simple mapping for testing"
+        source_fields:
+          - id: src_id
+            path: "data.id"
+            type: string
+          - id: src_name
+            path: "data.name"
+            type: string
+          - id: src_email
+            path: "data.email"
+            type: string
+        target_fields:
+          - id: tgt_source_id
+            path: "_source_id"
+            type: string
+          - id: tgt_entity_type
+            path: "_entity_type"
+            type: string
+          - id: tgt_name
+            path: "name"
+            type: string
+          - id: tgt_email
+            path: "email"
+            type: string
+        steps:
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_id
+            target:
+              field_id: tgt_source_id
+          - source:
+              constant: user
+            target:
+              field_id: tgt_entity_type
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+          - source:
+              field_id: src_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 202
+      save_as: mapping_response
+
+  # Verify the mapping was created
+  - assert:
+      variable: mapping_response.id
+      not_empty: true
+      message: Mapping ID should be returned
+
+  # Read the mapping back
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping_response.id}}
+      expect:
+        status: 200
+
+  # Create a binding for this mapping
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/bindings
+      body:
+        name: "Test Binding {{uuid}}"
+        mapping_id: "{{mapping_response.id}}"
+        is_enabled: true
+        output_topic: "test-mapped-data"
+        filter:
+          integration: "test-integration"
+          keys:
+            - "test-plan"
+      expect:
+        status: 201
+      save_as: binding_response
+
+  # Verify the binding was created
+  - assert:
+      variable: binding_response.id
+      not_empty: true
+      message: Binding ID should be returned
+
+  # List bindings
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/bindings
+      expect:
+        status: 200
+
+  # Test executing the mapping with sample data
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/execute
+      body:
+        id: "{{mapping_response.id}}"
+        source_raw:
+          data:
+            id: "user-123"
+            name: "John Doe"
+            email: "JOHN.DOE@EXAMPLE.COM"
+      expect:
+        status: 200
+      save_as: execute_response
+
+cleanup:
+  # Delete the binding first
+  - http_request:
+      service: lotus
+      method: DELETE
+      path: /api/v1/bindings/{{binding_response.id}}
+
+  # Note: Mapping definitions may not have a delete endpoint,
+  # or may require deactivation instead

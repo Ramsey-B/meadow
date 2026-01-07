@@ -1,0 +1,31 @@
+name: Services Health Check
+description: Verify all Meadow services are running and reachable
+
+steps:
+  - http_request:
+      service: mocks
+      method: GET
+      path: /health
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200

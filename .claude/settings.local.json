@@ -9,7 +9,8 @@
       "Bash(go list:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(GOWORK=off go test:*)"
+      "Bash(GOWORK=off go test:*)",
+      "Bash(xargs:*)"
     ]
   }
 }
