@@ -1,0 +1,184 @@
+name: Ivy Schema Validation
+description: Test entity data validation against schema with required fields and formats
+
+steps:
+  # Create entity type with validation requirements
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "validated{{timestamp}}"
+        name: "Validated Entity"
+        description: "Entity type with strict validation"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              description: "Email address (required)"
+              merge_strategy: prefer_non_empty
+            name:
+              type: string
+              description: "Full name (required)"
+              merge_strategy: most_recent
+            age:
+              type: number
+              description: "Age in years"
+              merge_strategy: most_recent
+            status:
+              type: string
+              enum: ["active", "inactive", "suspended"]
+              description: "Account status"
+              merge_strategy: most_recent
+          required:
+            - email
+            - name
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # Verify entity type was created
+  - assert:
+      variable: entity_type.id
+      not_empty: true
+      message: Entity type should be created
+
+  # Test validation with VALID data (all required fields present)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "valid@example.com"
+          name: "John Doe"
+          age: 30
+          status: "active"
+      expect:
+        status: 200
+      save_as: valid_result
+
+  # Verify valid data passed
+  - assert:
+      variable: valid_result
+      not_empty: true
+      message: Valid data should pass validation
+
+  # Test validation with INVALID email format (returns 200 with valid:false)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "not-an-email"
+          name: "Jane Doe"
+          status: "active"
+      expect:
+        status: 200
+      save_as: invalid_email_result
+
+  # Verify validation failed
+  - assert:
+      variable: invalid_email_result.valid
+      equals: false
+      message: Invalid email should fail validation
+
+  # Test validation with MISSING required field (name)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "test@example.com"
+          age: 25
+      expect:
+        status: 200
+      save_as: missing_name_result
+
+  # Verify missing field failed
+  - assert:
+      variable: missing_name_result.valid
+      equals: false
+      message: Missing required field should fail validation
+
+  # Test validation with EXTRA fields (should be allowed)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "test@example.com"
+          name: "Alice Johnson"
+          age: 28
+          status: "active"
+          extra_field: "should be ignored"
+      expect:
+        status: 200
+      save_as: extra_fields_result
+
+  # Test validation with NULL optional field (should be valid)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "test@example.com"
+          name: "Charlie Brown"
+          age: null
+          status: null
+      expect:
+        status: 200
+      save_as: null_optional_result
+
+  # Test validation with EMPTY string for required field
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: ""
+          name: "Test User"
+      expect:
+        status: 200
+      save_as: empty_required_result
+
+  # Verify empty string failed validation
+  - assert:
+      variable: empty_required_result.valid
+      equals: false
+      message: Empty required field should fail validation
+
+  # Test validation with valid enum values
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type.key}}"
+        data:
+          email: "test@example.com"
+          name: "Test User"
+          status: "suspended"
+      expect:
+        status: 200
+      save_as: valid_enum_result
+
+cleanup:
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}

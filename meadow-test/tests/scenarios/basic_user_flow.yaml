@@ -1,0 +1,229 @@
+name: Basic User Data Flow E2E
+description: End-to-end test of user data flowing through Orchid → Lotus → Ivy
+
+steps:
+  # === ORCHID: Create integration and config ===
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "E2E Test Integration {{uuid}}"
+        description: "Test integration for E2E scenario"
+        config_schema:
+          name: "API Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "E2E Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # === IVY: Create entity type for users ===
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "e2euser{{timestamp}}"
+        name: "E2E User"
+        description: "User entity for E2E test"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              merge_strategy: prefer_non_empty
+            name:
+              type: string
+              merge_strategy: most_recent
+            status:
+              type: string
+              merge_strategy: most_recent
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # === LOTUS: Create mapping definition ===
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "E2E User Mapping {{uuid}}"
+        key: "e2e-user-mapping-{{uuid}}"
+        description: "Maps API users to Ivy entities"
+        source_fields:
+          - id: api_id
+            path: "id"
+            type: string
+          - id: api_name
+            path: "name"
+            type: string
+          - id: api_email
+            path: "email"
+            type: string
+          - id: api_status
+            path: "status"
+            type: string
+        target_fields:
+          - id: ivy_source_id
+            path: "_source_id"
+            type: string
+          - id: ivy_entity_type
+            path: "_entity_type"
+            type: string
+          - id: ivy_integration
+            path: "_integration"
+            type: string
+          - id: ivy_email
+            path: "email"
+            type: string
+          - id: ivy_name
+            path: "name"
+            type: string
+          - id: ivy_status
+            path: "status"
+            type: string
+        steps:
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          # Map source ID
+          - source:
+              field_id: api_id
+            target:
+              field_id: ivy_source_id
+          # Set entity type (constant)
+          - source:
+              constant: "{{entity_type.key}}"
+            target:
+              field_id: ivy_entity_type
+          # Set integration name (constant)
+          - source:
+              constant: "e2e-test"
+            target:
+              field_id: ivy_integration
+          # Map name directly
+          - source:
+              field_id: api_name
+            target:
+              field_id: ivy_name
+          # Map status directly
+          - source:
+              field_id: api_status
+            target:
+              field_id: ivy_status
+          # Map email through lowercase transformer
+          - source:
+              field_id: api_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: ivy_email
+      expect:
+        status: 202
+      save_as: mapping
+
+  # Verify mapping was created
+  - assert:
+      variable: mapping.id
+      not_empty: true
+      message: Mapping should be created
+
+  # Test the mapping with sample data
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/execute
+      body:
+        id: "{{mapping.id}}"
+        source_raw:
+          id: "user-001"
+          name: "Test User"
+          email: "TEST.USER@EXAMPLE.COM"
+          status: "active"
+      expect:
+        status: 200
+      save_as: mapping_result
+
+  # Verify mapping output
+  - assert:
+      variable: mapping_result.target_raw._source_id
+      equals: "user-001"
+      message: Source ID should be mapped
+
+  - assert:
+      variable: mapping_result.target_raw.email
+      equals: "test.user@example.com"
+      message: Email should be lowercased
+
+  - assert:
+      variable: mapping_result.target_raw._entity_type
+      not_empty: true
+      message: Entity type should be set
+
+  # Verify all services are healthy
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/health
+      expect:
+        status: 200
+
+cleanup:
+  # Clean up in reverse order
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

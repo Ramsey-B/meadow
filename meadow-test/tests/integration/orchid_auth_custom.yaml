@@ -1,0 +1,124 @@
+name: Orchid Custom Authentication Flow
+description: Test custom authentication flow with custom headers and request transformations
+
+steps:
+  # Create integration for custom auth
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Custom Auth Integration {{uuid}}"
+        description: "Integration for testing custom authentication"
+        config_schema:
+          name: "Custom Auth Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              auth_token:
+                type: string
+              tenant_id:
+                type: string
+              api_version:
+                type: string
+            required:
+              - base_url
+              - auth_token
+              - tenant_id
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with custom auth (using multiple custom headers)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Custom Auth Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          auth_token: "custom-bearer-token-xyz"
+          tenant_id: "tenant-123"
+          api_version: "v2"
+        auth:
+          type: custom
+          headers:
+            - name: Authorization
+              value_field: auth_token
+              prefix: "Bearer "
+            - name: X-Tenant-ID
+              value_field: tenant_id
+            - name: X-API-Version
+              value_field: api_version
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with custom auth should be created
+
+  # Create a plan that uses custom auth
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Custom Auth Plan {{uuid}}"
+        key: "custom-auth-{{uuid}}"
+        description: "Plan that uses custom authentication"
+        steps:
+          - id: fetch_with_custom
+            type: request
+            method: GET
+            path: /api/test/custom-auth
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with custom auth should be created
+
+  # Get the config to verify custom auth configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_details
+
+  # Verify config has correct structure
+  - assert:
+      variable: config_details.id
+      not_empty: true
+      message: Custom auth config should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

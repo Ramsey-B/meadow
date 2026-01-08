@@ -1,0 +1,288 @@
+name: Lotus Object Transformation Actions
+description: Test various object transformation actions (get, pick, omit, merge, keys, values)
+
+steps:
+  # Test object_get - extract value from object by path
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Get Test"
+        source_raw:
+          user:
+            profile:
+              name: "Alice"
+              email: "alice@example.com"
+            settings:
+              theme: "dark"
+        source_fields:
+          - id: user_obj
+            path: "user"
+            type: object
+        target_fields:
+          - id: email
+            path: "email"
+            type: string
+        steps:
+          - id: get_email
+            type: transformer
+            action:
+              key: object_get
+              arguments:
+                path: "profile.email"
+        links:
+          - source:
+              field_id: user_obj
+            target:
+              step_id: get_email
+          - source:
+              step_id: get_email
+            target:
+              field_id: email
+      expect:
+        status: 200
+      save_as: get_result
+
+  # Verify object_get result
+  - assert:
+      variable: get_result.target_raw.email
+      equals: "alice@example.com"
+      message: Should extract nested email from object
+
+  # Test object_pick - select specific keys
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Pick Test"
+        source_raw:
+          person:
+            name: "Bob"
+            email: "bob@example.com"
+            age: 30
+            ssn: "123-45-6789"
+            address: "123 Main St"
+        source_fields:
+          - id: person_obj
+            path: "person"
+            type: object
+        target_fields:
+          - id: public_info
+            path: "public"
+            type: object
+        steps:
+          - id: pick
+            type: transformer
+            action:
+              key: object_pick
+              arguments:
+                keys: ["name", "email", "age"]
+        links:
+          - source:
+              field_id: person_obj
+            target:
+              step_id: pick
+          - source:
+              step_id: pick
+            target:
+              field_id: public_info
+      expect:
+        status: 200
+      save_as: pick_result
+
+  # Verify pick result exists
+  - assert:
+      variable: pick_result.target_raw.public
+      not_empty: true
+      message: Picked object should be returned
+
+  # Test object_omit - exclude specific keys
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Omit Test"
+        source_raw:
+          data:
+            name: "Charlie"
+            password: "secret123"
+            api_key: "abc123"
+            email: "charlie@example.com"
+        source_fields:
+          - id: data_obj
+            path: "data"
+            type: object
+        target_fields:
+          - id: safe_data
+            path: "safe"
+            type: object
+        steps:
+          - id: omit
+            type: transformer
+            action:
+              key: object_omit
+              arguments:
+                keys: ["password", "api_key"]
+        links:
+          - source:
+              field_id: data_obj
+            target:
+              step_id: omit
+          - source:
+              step_id: omit
+            target:
+              field_id: safe_data
+      expect:
+        status: 200
+      save_as: omit_result
+
+  # Verify omit result exists
+  - assert:
+      variable: omit_result.target_raw.safe
+      not_empty: true
+      message: Omitted object should be returned
+
+  # Test object_merge - combine multiple objects
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Merge Test"
+        source_raw:
+          defaults:
+            theme: "light"
+            language: "en"
+            notifications: true
+          overrides:
+            theme: "dark"
+            notifications: false
+        source_fields:
+          - id: defaults_obj
+            path: "defaults"
+            type: object
+          - id: overrides_obj
+            path: "overrides"
+            type: object
+        target_fields:
+          - id: settings
+            path: "settings"
+            type: object
+        steps:
+          - id: merge
+            type: transformer
+            action:
+              key: object_merge
+        links:
+          - source:
+              field_id: defaults_obj
+            target:
+              step_id: merge
+          - source:
+              field_id: overrides_obj
+            target:
+              step_id: merge
+          - source:
+              step_id: merge
+            target:
+              field_id: settings
+      expect:
+        status: 200
+      save_as: merge_result
+
+  # Verify merge result exists
+  - assert:
+      variable: merge_result.target_raw.settings
+      not_empty: true
+      message: Merged object should be returned
+
+  # Test object_keys - get array of object keys
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Keys Test"
+        source_raw:
+          obj:
+            name: "Test"
+            value: 123
+            active: true
+        source_fields:
+          - id: input_obj
+            path: "obj"
+            type: object
+        target_fields:
+          - id: keys_array
+            path: "keys"
+            type: array
+        steps:
+          - id: keys
+            type: transformer
+            action:
+              key: object_keys
+        links:
+          - source:
+              field_id: input_obj
+            target:
+              step_id: keys
+          - source:
+              step_id: keys
+            target:
+              field_id: keys_array
+      expect:
+        status: 200
+      save_as: keys_result
+
+  # Verify keys result exists
+  - assert:
+      variable: keys_result.target_raw.keys
+      not_empty: true
+      message: Keys array should be returned
+
+  # Test object_values - get array of object values
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object Values Test"
+        source_raw:
+          obj:
+            first: "John"
+            last: "Doe"
+            age: 30
+        source_fields:
+          - id: input_obj
+            path: "obj"
+            type: object
+        target_fields:
+          - id: values_array
+            path: "values"
+            type: array
+        steps:
+          - id: values
+            type: transformer
+            action:
+              key: object_values
+        links:
+          - source:
+              field_id: input_obj
+            target:
+              step_id: values
+          - source:
+              step_id: values
+            target:
+              field_id: values_array
+      expect:
+        status: 200
+      save_as: values_result
+
+  # Verify values result exists
+  - assert:
+      variable: values_result.target_raw.values
+      not_empty: true
+      message: Values array should be returned

@@ -1,0 +1,335 @@
+name: Lotus Advanced Text Operations
+description: Test advanced text operations (contains, starts_with, ends_with, replace, substring, etc.)
+
+steps:
+  # Test text_contains - check if text contains substring
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Contains Test"
+        source_raw:
+          description: "This product is available in blue, red, and green"
+          search: "blue"
+        source_fields:
+          - id: text
+            path: "description"
+            type: string
+          - id: term
+            path: "search"
+            type: string
+        target_fields:
+          - id: has_color
+            path: "found"
+            type: bool
+        steps:
+          - id: check
+            type: transformer
+            action:
+              key: text_contains
+        links:
+          - source:
+              field_id: text
+            target:
+              step_id: check
+          - source:
+              field_id: term
+            target:
+              step_id: check
+          - source:
+              step_id: check
+            target:
+              field_id: has_color
+      expect:
+        status: 200
+      save_as: contains_result
+
+  # Verify contains result
+  - assert:
+      variable: contains_result.target_raw.found
+      not_empty: true
+      message: Should detect if text contains substring
+
+  # Test text_starts_with
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Starts With Test"
+        source_raw:
+          url: "https://example.com/path"
+          prefix: "https://"
+        source_fields:
+          - id: text
+            path: "url"
+            type: string
+          - id: start
+            path: "prefix"
+            type: string
+        target_fields:
+          - id: is_https
+            path: "secure"
+            type: bool
+        steps:
+          - id: check_start
+            type: transformer
+            action:
+              key: text_starts_with
+        links:
+          - source:
+              field_id: text
+            target:
+              step_id: check_start
+          - source:
+              field_id: start
+            target:
+              step_id: check_start
+          - source:
+              step_id: check_start
+            target:
+              field_id: is_https
+      expect:
+        status: 200
+      save_as: starts_result
+
+  # Verify starts_with result
+  - assert:
+      variable: starts_result.target_raw.secure
+      not_empty: true
+      message: Should detect if text starts with prefix
+
+  # Test text_ends_with
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Ends With Test"
+        source_raw:
+          filename: "document.pdf"
+          extension: ".pdf"
+        source_fields:
+          - id: text
+            path: "filename"
+            type: string
+          - id: suffix
+            path: "extension"
+            type: string
+        target_fields:
+          - id: is_pdf
+            path: "is_pdf"
+            type: bool
+        steps:
+          - id: check_end
+            type: transformer
+            action:
+              key: text_ends_with
+        links:
+          - source:
+              field_id: text
+            target:
+              step_id: check_end
+          - source:
+              field_id: suffix
+            target:
+              step_id: check_end
+          - source:
+              step_id: check_end
+            target:
+              field_id: is_pdf
+      expect:
+        status: 200
+      save_as: ends_result
+
+  # Verify ends_with result
+  - assert:
+      variable: ends_result.target_raw.is_pdf
+      not_empty: true
+      message: Should detect if text ends with suffix
+
+  # Test text_replace - simple string replacement
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Replace Test"
+        source_raw:
+          text: "Hello World, World!"
+          old: "World"
+          new: "Universe"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+          - id: search
+            path: "old"
+            type: string
+          - id: replacement
+            path: "new"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: replace
+            type: transformer
+            action:
+              key: text_replace
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: replace
+          - source:
+              field_id: search
+            target:
+              step_id: replace
+          - source:
+              field_id: replacement
+            target:
+              step_id: replace
+          - source:
+              step_id: replace
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: replace_result
+
+  # Verify replace result
+  - assert:
+      variable: replace_result.target_raw.result
+      not_empty: true
+      message: Should replace substring
+
+  # Test text_substring - extract portion of text
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Substring Test"
+        source_raw:
+          text: "Hello World"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: substr
+            type: transformer
+            action:
+              key: text_substring
+              arguments:
+                start: 0
+                end: 5
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: substr
+          - source:
+              step_id: substr
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: substring_result
+
+  # Verify substring result
+  - assert:
+      variable: substring_result.target_raw.result
+      equals: "Hello"
+      message: Should extract substring
+
+  # Test text_index_of - find position of substring
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Index Of Test"
+        source_raw:
+          text: "user@example.com"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: position
+            path: "index"
+            type: number
+        steps:
+          - id: find_index
+            type: transformer
+            action:
+              key: text_index_of
+              arguments:
+                search: "@"
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: find_index
+          - source:
+              step_id: find_index
+            target:
+              field_id: position
+      expect:
+        status: 200
+      save_as: index_result
+
+  # Verify index result
+  - assert:
+      variable: index_result.target_raw.index
+      not_empty: true
+      message: Should return index of substring
+
+  # Test text_reverse - reverse string
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Reverse Test"
+        source_raw:
+          text: "hello"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "result"
+            type: string
+        steps:
+          - id: reverse
+            type: transformer
+            action:
+              key: text_reverse
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: reverse
+          - source:
+              step_id: reverse
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: reverse_result
+
+  # Verify reverse result
+  - assert:
+      variable: reverse_result.target_raw.result
+      equals: "olleh"
+      message: Should reverse the string

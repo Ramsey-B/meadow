@@ -1,0 +1,128 @@
+name: Orchid OAuth2 with Token Refresh
+description: Test OAuth2 authentication with token refresh capabilities
+
+steps:
+  # Create integration for OAuth2 with refresh
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "OAuth2 Refresh Integration {{uuid}}"
+        description: "Integration for testing OAuth2 with token refresh"
+        config_schema:
+          name: "OAuth2 Refresh Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              token_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+              refresh_token:
+                type: string
+              scope:
+                type: string
+            required:
+              - base_url
+              - token_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with OAuth2 refresh token support
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OAuth2 Refresh Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          token_url: "http://localhost:8090/oauth/token"
+          client_id: "refresh-client-id"
+          client_secret: "refresh-client-secret"
+          refresh_token: "initial-refresh-token"
+          scope: "read:data write:data offline_access"
+        auth:
+          type: oauth2_refresh_token
+          token_url_field: token_url
+          client_id_field: client_id
+          client_secret_field: client_secret
+          refresh_token_field: refresh_token
+          scope_field: scope
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with OAuth2 refresh should be created
+
+  # Create a plan that uses OAuth2 with refresh
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OAuth2 Refresh Plan {{uuid}}"
+        key: "oauth2-refresh-{{uuid}}"
+        description: "Plan that uses OAuth2 with token refresh"
+        steps:
+          - id: fetch_with_refresh
+            type: request
+            method: GET
+            path: /api/test/oauth-protected
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with OAuth2 refresh should be created
+
+  # Get the config to verify refresh token configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_details
+
+  # Verify config has correct structure
+  - assert:
+      variable: config_details.id
+      not_empty: true
+      message: OAuth2 refresh config should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

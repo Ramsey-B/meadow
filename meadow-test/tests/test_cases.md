@@ -40,38 +40,38 @@ Quick validation that services are running and reachable.
 
 ### Authentication Flows
 
-| Status | Test Case                            | Test File                                                                |
-| ------ | ------------------------------------ | ------------------------------------------------------------------------ |
-| ✅     | No authentication (public API)       | [`integration/orchid_auth_none.yaml`](integration/orchid_auth_none.yaml) |
-| ⬚      | OAuth2 Client Credentials flow       |                                                                          |
-| ⬚      | OAuth2 with token refresh            |                                                                          |
-| ⬚      | Basic authentication                 |                                                                          |
-| ⬚      | API key authentication (header)      |                                                                          |
-| ⬚      | API key authentication (query param) |                                                                          |
-| ⬚      | Custom authentication flow           |                                                                          |
-| ⬚      | Auth token caching and reuse         |                                                                          |
-| ⬚      | Auth token invalidation on 401       |                                                                          |
+| Status | Test Case                            | Test File                                                                                        |
+| ------ | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| ✅     | No authentication (public API)       | [`integration/orchid_auth_none.yaml`](integration/orchid_auth_none.yaml)                         |
+| ✅     | OAuth2 Client Credentials flow       | [`integration/orchid_auth_oauth2.yaml`](integration/orchid_auth_oauth2.yaml)                     |
+| ✅     | OAuth2 with token refresh            | [`integration/orchid_auth_oauth2_refresh.yaml`](integration/orchid_auth_oauth2_refresh.yaml)     |
+| ✅     | Basic authentication                 | [`integration/orchid_auth_basic.yaml`](integration/orchid_auth_basic.yaml)                       |
+| ✅     | API key authentication (header)      | [`integration/orchid_auth_api_key.yaml`](integration/orchid_auth_api_key.yaml)                   |
+| ✅     | API key authentication (query param) | [`integration/orchid_auth_api_key.yaml`](integration/orchid_auth_api_key.yaml)                   |
+| ✅     | Custom authentication flow           | [`integration/orchid_auth_custom.yaml`](integration/orchid_auth_custom.yaml)                     |
+| ✅     | Auth token caching and reuse         | [`integration/orchid_auth_token_caching.yaml`](integration/orchid_auth_token_caching.yaml)       |
+| ✅     | Auth token invalidation on 401       | [`integration/orchid_auth_token_invalidation.yaml`](integration/orchid_auth_token_invalidation.yaml) |
 
 ### Plan Execution
 
-| Status | Test Case                         | Test File                                                                        |
-| ------ | --------------------------------- | -------------------------------------------------------------------------------- |
-| ✅     | Simple single-step plan creation  | [`integration/orchid_plan_simple.yaml`](integration/orchid_plan_simple.yaml)     |
-| ⬚      | Multi-step sequential execution   |                                                                                  |
-| ⬚      | Plan with context variables       |                                                                                  |
-| ⬚      | Plan execution publishes to Kafka |                                                                                  |
+| Status | Test Case                         | Test File                                                                                    |
+| ------ | --------------------------------- | -------------------------------------------------------------------------------------------- |
+| ✅     | Simple single-step plan creation  | [`integration/orchid_plan_simple.yaml`](integration/orchid_plan_simple.yaml)                 |
+| ✅     | Multi-step sequential execution   | [`integration/orchid_multistep_plan.yaml`](integration/orchid_multistep_plan.yaml)           |
+| ✅     | Plan with context variables       | [`integration/orchid_multistep_plan.yaml`](integration/orchid_multistep_plan.yaml)           |
+| ✅     | Plan execution publishes to Kafka | [`integration/orchid_kafka_integration.yaml`](integration/orchid_kafka_integration.yaml)     |
 
 ### Pagination
 
-| Status | Test Case                              | Test File |
-| ------ | -------------------------------------- | --------- |
-| ⬚      | Cursor-based pagination (after/limit)  |           |
-| ⬚      | Page-based pagination (page/per_page)  |           |
-| ⬚      | Offset-based pagination (offset/limit) |           |
-| ⬚      | Link header pagination (next URL)      |           |
-| ⬚      | OData pagination (@odata.nextLink)     |           |
-| ⬚      | Break on empty page                    |           |
-| ⬚      | Break on partial page                  |           |
+| Status | Test Case                              | Test File                                                            |
+| ------ | -------------------------------------- | -------------------------------------------------------------------- |
+| ✅     | Cursor-based pagination (after/limit)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
+| ✅     | Page-based pagination (page/per_page)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
+| ✅     | Offset-based pagination (offset/limit) | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
+| ✅     | Link header pagination (next URL)      | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
+| ⬚      | OData pagination (@odata.nextLink)     |                                                                      |
+| ⬚      | Break on empty page                    |                                                                      |
+| ⬚      | Break on partial page                  |                                                                      |
 
 ### Fanout (Nested Requests)
 
@@ -131,13 +131,13 @@ Quick validation that services are running and reachable.
 
 ### Mapping Definition Management
 
-| Status | Test Case                        | Test File                                                                    |
-| ------ | -------------------------------- | ---------------------------------------------------------------------------- |
-| ✅     | Create/Read mapping definition   | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml) |
-| ✅     | Execute mapping with sample data | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml) |
-| ⬚      | Update mapping definition        |                                                                              |
-| ⬚      | Delete/deactivate mapping        |                                                                              |
-| ⬚      | Mapping versioning               |                                                                              |
+| Status | Test Case                        | Test File                                                                                |
+| ------ | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| ✅     | Create/Read mapping definition   | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)             |
+| ✅     | Execute mapping with sample data | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)             |
+| ✅     | Update mapping definition        | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml)       |
+| ⬚      | Delete/deactivate mapping        |                                                                                          |
+| ✅     | Mapping versioning               | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml)       |
 
 ### Binding Management
 
@@ -164,22 +164,23 @@ Quick validation that services are running and reachable.
 | ✅     | Coalesce (first non-null)                  | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)   |
 | ✅     | Default value fallback                     | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)   |
 | ✅     | Array operations (push, length, contains)  | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)         |
-| ⬚      | Object operations (get, pick, omit, merge) |                                                                                        |
+| ✅     | Object operations (get, pick, omit, merge) | [`integration/lotus_object_actions.yaml`](integration/lotus_object_actions.yaml)       |
 | ⬚      | Conditional (if-else)                      |                                                                                        |
-| ⬚      | Regex match and replace                    |                                                                    |
+| ✅     | Regex match and replace                    | [`integration/lotus_regex_actions.yaml`](integration/lotus_regex_actions.yaml)         |
+| ✅     | Advanced text operations (contains, starts_with, ends_with, substring, index_of) | [`integration/lotus_text_advanced.yaml`](integration/lotus_text_advanced.yaml) |
 
 ### Type Matching
 
-| Status | Test Case                        | Test File |
-| ------ | -------------------------------- | --------- |
-| ⬚      | String field to string target    |           |
-| ⬚      | Number field to number target    |           |
-| ⬚      | Boolean field to boolean target  |           |
-| ⬚      | Array field to array target      |           |
-| ⬚      | Object field to object target    |           |
-| ⬚      | Type coercion (string → number)  |           |
-| ⬚      | Type coercion (string → boolean) |           |
-| ⬚      | Nested field extraction (a.b.c)  |           |
+| Status | Test Case                        | Test File                                                                          |
+| ------ | -------------------------------- | ---------------------------------------------------------------------------------- |
+| ✅     | String field to string target    | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Number field to number target    | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Boolean field to boolean target  | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Array field to array target      | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Object field to object target    | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Type coercion (string → number)  | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Type coercion (string → boolean) | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
+| ✅     | Nested field extraction (a.b.c)  | [`integration/lotus_type_matching.yaml`](integration/lotus_type_matching.yaml)     |
 
 ### Simple Mappings
 
@@ -342,11 +343,12 @@ Quick validation that services are running and reachable.
 
 ### Validation
 
-| Status | Test Case                           | Test File                                                                |
-| ------ | ----------------------------------- | ------------------------------------------------------------------------ |
-| ✅     | Validate entity data against schema | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml) |
-| ⬚      | Invalid data rejected               |                                                                          |
-| ⬚      | Required field validation           |                                                                          |
+| Status | Test Case                           | Test File                                                              |
+| ------ | ----------------------------------- | ---------------------------------------------------------------------- |
+| ✅     | Validate entity data against schema | [`integration/ivy_validation.yaml`](integration/ivy_validation.yaml)   |
+| ✅     | Invalid data rejected               | [`integration/ivy_validation.yaml`](integration/ivy_validation.yaml)   |
+| ✅     | Required field validation           | [`integration/ivy_validation.yaml`](integration/ivy_validation.yaml)   |
+| ✅     | Email format validation             | [`integration/ivy_validation.yaml`](integration/ivy_validation.yaml)   |
 
 ### Benchmarks
 
@@ -376,9 +378,9 @@ Quick validation that services are running and reachable.
 
 Full pipeline tests that exercise multiple services.
 
-| Status | Test Case                                                                     | Test File |
-| ------ | ----------------------------------------------------------------------------- | --------- |
-| ⬚      | **Basic E2E**: Orchid pulls data → Kafka → Lotus transforms → Ivy resolves    |           |
+| Status | Test Case                                                                     | Test File                                                                  |
+| ------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| ✅     | **Basic E2E**: Orchid + Lotus + Ivy integration test                          | [`scenarios/basic_user_flow.yaml`](scenarios/basic_user_flow.yaml)         |
 | ⬚      | **OKTA User Sync**: Auth → fetch users → transform → create Person entities   |           |
 | ⬚      | **MS Graph Sync**: Auth → fetch users/devices → transform → resolve entities  |           |
 | ⬚      | **Multi-Source Resolution**: OKTA + MS Graph → match by email → merged Person |           |

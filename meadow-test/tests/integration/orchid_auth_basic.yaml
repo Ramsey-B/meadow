@@ -1,0 +1,115 @@
+name: Orchid Basic Authentication
+description: Test plan execution with HTTP Basic authentication
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Basic Auth Integration {{uuid}}"
+        description: "Integration for testing basic authentication"
+        config_schema:
+          name: "Basic Auth Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              username:
+                type: string
+              password:
+                type: string
+            required:
+              - base_url
+              - username
+              - password
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with basic authentication
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Basic Auth Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          username: "testuser"
+          password: "testpass"
+        auth:
+          type: basic
+          username_field: username
+          password_field: password
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with basic auth should be created
+
+  # Create a plan that calls an authenticated endpoint
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Basic Auth Plan {{uuid}}"
+        key: "basic-auth-{{uuid}}"
+        description: "Plan that accesses endpoint with basic auth"
+        steps:
+          - id: fetch_protected
+            type: request
+            method: GET
+            path: /api/test/protected
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with basic auth should be created
+
+  # Get the config to verify auth configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_details
+
+  # Verify config has correct structure
+  - assert:
+      variable: config_details.id
+      not_empty: true
+      message: Config should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

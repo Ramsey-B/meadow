@@ -1,0 +1,103 @@
+name: Lotus Mapping Updates and Deletion
+description: Test updating mapping definitions and managing their lifecycle
+
+steps:
+  # Create a mapping definition
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "Original Mapping {{uuid}}"
+        key: "update-test-{{uuid}}"
+        description: "Original description"
+        source_fields:
+          - id: src_name
+            path: "name"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "full_name"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+      expect:
+        status: 202
+      save_as: mapping
+
+  # Verify mapping was created
+  - assert:
+      variable: mapping.id
+      not_empty: true
+      message: Mapping should be created
+
+  # Get the mapping to verify initial state
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      expect:
+        status: 200
+      save_as: original_mapping
+
+  # Verify original properties
+  - assert:
+      variable: original_mapping.description
+      equals: "Original description"
+      message: Should have original description
+
+  # Update the mapping definition
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      body:
+        version: 1
+        name: "Updated Mapping {{uuid}}"
+        key: "{{mapping.key}}"
+        description: "Updated description - now with more fields"
+        source_fields:
+          - id: src_name
+            path: "name"
+            type: string
+          - id: src_email
+            path: "email"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "full_name"
+            type: string
+          - id: tgt_email
+            path: "email_address"
+            type: string
+        steps:
+          - id: lowercase
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+          - source:
+              field_id: src_email
+            target:
+              step_id: lowercase
+          - source:
+              step_id: lowercase
+            target:
+              field_id: tgt_email
+      expect:
+        status: 202
+      save_as: updated_mapping
+
+  # Verify update succeeded
+  - assert:
+      variable: updated_mapping.id
+      not_empty: true
+      message: Updated mapping should return ID

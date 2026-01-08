@@ -1,0 +1,329 @@
+name: Lotus Type Matching and Coercion
+description: Test type matching between source and target fields, including type coercion
+
+steps:
+  # Test string to string (direct match)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "String to String Test"
+        source_raw:
+          name: "Alice"
+        source_fields:
+          - id: src_name
+            path: "name"
+            type: string
+        target_fields:
+          - id: tgt_name
+            path: "name"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_name
+            target:
+              field_id: tgt_name
+      expect:
+        status: 200
+      save_as: string_result
+
+  # Verify string mapping
+  - assert:
+      variable: string_result.target_raw.name
+      equals: "Alice"
+      message: String should map directly
+
+  # Test number to number (direct match)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number to Number Test"
+        source_raw:
+          age: 25
+        source_fields:
+          - id: src_age
+            path: "age"
+            type: number
+        target_fields:
+          - id: tgt_age
+            path: "age"
+            type: number
+        steps: []
+        links:
+          - source:
+              field_id: src_age
+            target:
+              field_id: tgt_age
+      expect:
+        status: 200
+      save_as: number_result
+
+  # Verify number mapping
+  - assert:
+      variable: number_result.target_raw.age
+      not_empty: true
+      message: Number should map directly
+
+  # Test bool to bool (direct match)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Bool to Bool Test"
+        source_raw:
+          active: true
+        source_fields:
+          - id: src_active
+            path: "active"
+            type: bool
+        target_fields:
+          - id: tgt_active
+            path: "is_active"
+            type: bool
+        steps: []
+        links:
+          - source:
+              field_id: src_active
+            target:
+              field_id: tgt_active
+      expect:
+        status: 200
+      save_as: bool_result
+
+  # Verify bool mapping
+  - assert:
+      variable: bool_result.target_raw.is_active
+      not_empty: true
+      message: Bool should map directly
+
+  # Test array to array (direct match)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array to Array Test"
+        source_raw:
+          tags: ["backend", "api", "golang"]
+        source_fields:
+          - id: src_tags
+            path: "tags"
+            type: array
+        target_fields:
+          - id: tgt_tags
+            path: "tags"
+            type: array
+        steps: []
+        links:
+          - source:
+              field_id: src_tags
+            target:
+              field_id: tgt_tags
+      expect:
+        status: 200
+      save_as: array_result
+
+  # Verify array mapping
+  - assert:
+      variable: array_result.target_raw.tags
+      not_empty: true
+      message: Array should map directly
+
+  # Test object to object (direct match)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Object to Object Test"
+        source_raw:
+          metadata:
+            created: "2024-01-01"
+            version: 1
+        source_fields:
+          - id: src_meta
+            path: "metadata"
+            type: object
+        target_fields:
+          - id: tgt_meta
+            path: "meta"
+            type: object
+        steps: []
+        links:
+          - source:
+              field_id: src_meta
+            target:
+              field_id: tgt_meta
+      expect:
+        status: 200
+      save_as: object_result
+
+  # Verify object mapping
+  - assert:
+      variable: object_result.target_raw.meta
+      not_empty: true
+      message: Object should map directly
+
+  # Test string to number coercion (using text_to_number)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "String to Number Coercion"
+        source_raw:
+          count_str: "42"
+        source_fields:
+          - id: src_count
+            path: "count_str"
+            type: string
+        target_fields:
+          - id: tgt_count
+            path: "count"
+            type: number
+        steps:
+          - id: to_number
+            type: transformer
+            action:
+              key: text_to_number
+        links:
+          - source:
+              field_id: src_count
+            target:
+              step_id: to_number
+          - source:
+              step_id: to_number
+            target:
+              field_id: tgt_count
+      expect:
+        status: 200
+      save_as: str_to_num_result
+
+  # Verify coercion
+  - assert:
+      variable: str_to_num_result.target_raw.count
+      not_empty: true
+      message: String should be coerced to number
+
+  # Test string to bool coercion (using text_to_bool)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "String to Bool Coercion"
+        source_raw:
+          flag_str: "true"
+        source_fields:
+          - id: src_flag
+            path: "flag_str"
+            type: string
+        target_fields:
+          - id: tgt_flag
+            path: "flag"
+            type: bool
+        steps:
+          - id: to_bool
+            type: transformer
+            action:
+              key: text_to_bool
+        links:
+          - source:
+              field_id: src_flag
+            target:
+              step_id: to_bool
+          - source:
+              step_id: to_bool
+            target:
+              field_id: tgt_flag
+      expect:
+        status: 200
+      save_as: str_to_bool_result
+
+  # Verify coercion
+  - assert:
+      variable: str_to_bool_result.target_raw.flag
+      not_empty: true
+      message: String should be coerced to bool
+
+  # Test number to string coercion (using number_to_string)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number to String Coercion"
+        source_raw:
+          id_num: 12345
+        source_fields:
+          - id: src_id
+            path: "id_num"
+            type: number
+        target_fields:
+          - id: tgt_id
+            path: "id"
+            type: string
+        steps:
+          - id: to_string
+            type: transformer
+            action:
+              key: number_to_string
+        links:
+          - source:
+              field_id: src_id
+            target:
+              step_id: to_string
+          - source:
+              step_id: to_string
+            target:
+              field_id: tgt_id
+      expect:
+        status: 200
+      save_as: num_to_str_result
+
+  # Verify coercion
+  - assert:
+      variable: num_to_str_result.target_raw.id
+      equals: "12345"
+      message: Number should be coerced to string
+
+  # Test nested field extraction (a.b.c)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Nested Field Extraction"
+        source_raw:
+          user:
+            profile:
+              contact:
+                email: "deep@example.com"
+        source_fields:
+          - id: src_email
+            path: "user.profile.contact.email"
+            type: string
+        target_fields:
+          - id: tgt_email
+            path: "email"
+            type: string
+        steps: []
+        links:
+          - source:
+              field_id: src_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 200
+      save_as: nested_result
+
+  # Verify nested extraction
+  - assert:
+      variable: nested_result.target_raw.email
+      equals: "deep@example.com"
+      message: Should extract deeply nested field

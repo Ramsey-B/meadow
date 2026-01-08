@@ -1,0 +1,220 @@
+name: Lotus Regex Transformation Actions
+description: Test regex-based text transformations (match, replace, extract)
+
+steps:
+  # Test text_regex_match - check if text matches a pattern
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Match Test"
+        source_raw:
+          email: "user@example.com"
+        source_fields:
+          - id: input
+            path: "email"
+            type: string
+        target_fields:
+          - id: is_valid
+            path: "is_email"
+            type: bool
+        steps:
+          - id: check_email
+            type: transformer
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_email
+          - source:
+              step_id: check_email
+            target:
+              field_id: is_valid
+      expect:
+        status: 200
+      save_as: match_result
+
+  # Verify match result
+  - assert:
+      variable: match_result.target_raw.is_email
+      not_empty: true
+      message: Regex match should return boolean
+
+  # Test text_regex_replace - replace pattern with string
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Replace Test"
+        source_raw:
+          text: "Phone: 555-1234, Office: 555-5678"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: output
+            path: "sanitized"
+            type: string
+        steps:
+          - id: replace_phone
+            type: transformer
+            action:
+              key: text_regex_replace
+              arguments:
+                pattern: "\\d{3}-\\d{4}"
+                replacement: "XXX-XXXX"
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: replace_phone
+          - source:
+              step_id: replace_phone
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: replace_result
+
+  # Verify replace result
+  - assert:
+      variable: replace_result.target_raw.sanitized
+      not_empty: true
+      message: Regex replace should return modified text
+
+  # Test text_regex_extract - extract matches from text
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Extract Test"
+        source_raw:
+          text: "Order #12345 shipped to user@example.com"
+        source_fields:
+          - id: input
+            path: "text"
+            type: string
+        target_fields:
+          - id: order_id
+            path: "extracted"
+            type: string
+        steps:
+          - id: extract_number
+            type: transformer
+            action:
+              key: text_regex_extract
+              arguments:
+                pattern: "#(\\d+)"
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: extract_number
+          - source:
+              step_id: extract_number
+            target:
+              field_id: order_id
+      expect:
+        status: 200
+      save_as: extract_result
+
+  # Verify extract result
+  - assert:
+      variable: extract_result.target_raw.extracted
+      not_empty: true
+      message: Regex extract should return matched text
+
+  # Test multiple replacements (remove special characters)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Clean Username"
+        source_raw:
+          username: "user@name#123!"
+        source_fields:
+          - id: input
+            path: "username"
+            type: string
+        target_fields:
+          - id: output
+            path: "clean"
+            type: string
+        steps:
+          - id: clean
+            type: transformer
+            action:
+              key: text_regex_replace
+              arguments:
+                pattern: "[^a-zA-Z0-9]"
+                replacement: ""
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: clean
+          - source:
+              step_id: clean
+            target:
+              field_id: output
+      expect:
+        status: 200
+      save_as: clean_result
+
+  # Verify clean result
+  - assert:
+      variable: clean_result.target_raw.clean
+      not_empty: true
+      message: Should remove special characters
+
+  # Test extracting domain from email
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Extract Email Domain"
+        source_raw:
+          email: "john.doe@company.com"
+        source_fields:
+          - id: input
+            path: "email"
+            type: string
+        target_fields:
+          - id: domain
+            path: "domain"
+            type: string
+        steps:
+          - id: extract_domain
+            type: transformer
+            action:
+              key: text_regex_extract
+              arguments:
+                pattern: "@([a-zA-Z0-9.-]+)"
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: extract_domain
+          - source:
+              step_id: extract_domain
+            target:
+              field_id: domain
+      expect:
+        status: 200
+      save_as: domain_result
+
+  # Verify domain extraction
+  - assert:
+      variable: domain_result.target_raw.domain
+      not_empty: true
+      message: Should extract domain from email

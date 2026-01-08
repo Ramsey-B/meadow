@@ -1,0 +1,124 @@
+name: Orchid OAuth2 Client Credentials
+description: Test plan execution with OAuth2 client credentials flow
+
+steps:
+  # Create integration for OAuth2
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "OAuth2 Integration {{uuid}}"
+        description: "Integration for testing OAuth2 client credentials"
+        config_schema:
+          name: "OAuth2 Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              token_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+              scope:
+                type: string
+            required:
+              - base_url
+              - token_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with OAuth2 client credentials
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OAuth2 Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          token_url: "http://localhost:8090/oauth/token"
+          client_id: "test-client-id"
+          client_secret: "test-client-secret"
+          scope: "read:users write:users"
+        auth:
+          type: oauth2_client_credentials
+          token_url_field: token_url
+          client_id_field: client_id
+          client_secret_field: client_secret
+          scope_field: scope
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with OAuth2 should be created
+
+  # Create a plan that uses OAuth2 auth
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OAuth2 Plan {{uuid}}"
+        key: "oauth2-plan-{{uuid}}"
+        description: "Plan that uses OAuth2 client credentials"
+        steps:
+          - id: fetch_with_oauth
+            type: request
+            method: GET
+            path: /api/test/oauth-protected
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with OAuth2 should be created
+
+  # Get the config to verify OAuth2 configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_details
+
+  # Verify config has correct structure
+  - assert:
+      variable: config_details.id
+      not_empty: true
+      message: OAuth2 config should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

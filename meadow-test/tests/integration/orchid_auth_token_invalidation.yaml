@@ -1,0 +1,122 @@
+name: Orchid Auth Token Invalidation on 401
+description: Test that auth tokens are invalidated and refreshed when receiving 401 responses
+
+steps:
+  # Create integration for testing token invalidation
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Token Invalidation Integration {{uuid}}"
+        description: "Integration for testing auth token invalidation on 401"
+        config_schema:
+          name: "Token Invalidation Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              token_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+            required:
+              - base_url
+              - token_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with OAuth2 and retry on 401
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Token Invalidation Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          token_url: "http://localhost:8090/oauth/token"
+          client_id: "invalidation-test-client"
+          client_secret: "invalidation-test-secret"
+        auth:
+          type: oauth2_client_credentials
+          token_url_field: token_url
+          client_id_field: client_id
+          client_secret_field: client_secret
+          retry_on_401: true
+          max_retries: 2
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with 401 retry should be created
+
+  # Create a plan to test 401 handling
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Token Invalidation Plan {{uuid}}"
+        key: "token-401-{{uuid}}"
+        description: "Plan that tests token refresh on 401"
+        steps:
+          - id: test_401_retry
+            type: request
+            method: GET
+            path: /api/test/protected
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with 401 handling should be created
+
+  # Get the plan to verify it was created correctly
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan has correct structure
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Plan should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

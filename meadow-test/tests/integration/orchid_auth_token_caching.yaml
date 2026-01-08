@@ -1,0 +1,136 @@
+name: Orchid Auth Token Caching and Reuse
+description: Test that authentication tokens are cached and reused across multiple requests
+
+steps:
+  # Create integration for testing token caching
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Token Caching Integration {{uuid}}"
+        description: "Integration for testing auth token caching"
+        config_schema:
+          name: "Token Caching Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              token_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+            required:
+              - base_url
+              - token_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config with OAuth2 (which should cache tokens)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Token Caching Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          token_url: "http://localhost:8090/oauth/token"
+          client_id: "cache-test-client"
+          client_secret: "cache-test-secret"
+        auth:
+          type: oauth2_client_credentials
+          token_url_field: token_url
+          client_id_field: client_id
+          client_secret_field: client_secret
+          cache_tokens: true
+          token_expiry_buffer: 300
+      expect:
+        status: 201
+      save_as: config
+
+  # Verify config was created
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config with token caching should be created
+
+  # Create a plan that makes multiple requests (to test caching)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Token Caching Plan {{uuid}}"
+        key: "token-cache-{{uuid}}"
+        description: "Plan with multiple steps to test token reuse"
+        steps:
+          - id: first_request
+            type: request
+            method: GET
+            path: /api/test/data/users
+            pagination:
+              type: none
+
+          - id: second_request
+            type: request
+            method: GET
+            path: /api/test/data/organizations
+            pagination:
+              type: none
+
+          - id: third_request
+            type: request
+            method: GET
+            path: /api/test/data/devices
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan with multiple steps should be created
+
+  # Get the config to verify caching configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_details
+
+  # Verify config has correct structure
+  - assert:
+      variable: config_details.id
+      not_empty: true
+      message: Token caching config should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

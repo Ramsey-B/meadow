@@ -1,0 +1,114 @@
+name: Orchid Multi-Step Plan Execution
+description: Test creating and executing plans with multiple sequential steps
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Multi-Step Test Integration {{uuid}}"
+        description: "Integration for testing multi-step plans"
+        config_schema:
+          name: "Multi-Step Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Multi-Step Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create a plan with multiple sequential steps
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Multi-Step Plan {{uuid}}"
+        key: "multi-step-{{uuid}}"
+        description: "Plan with multiple sequential steps"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+
+          - id: fetch_organizations
+            type: request
+            method: GET
+            path: /api/test/organizations
+            pagination:
+              type: none
+
+          - id: fetch_devices
+            type: request
+            method: GET
+            path: /api/test/devices
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify the plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan should be created with multiple steps
+
+  # Get the plan to verify structure
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify fetched plan has key
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Fetched plan should have key
+
+cleanup:
+  # Clean up plan
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  # Clean up config and integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

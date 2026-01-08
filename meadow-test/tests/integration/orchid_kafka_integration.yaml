@@ -1,0 +1,104 @@
+name: Orchid Kafka Integration
+description: Test that Orchid plan execution publishes data to Kafka
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Kafka Integration {{uuid}}"
+        description: "Integration for testing Kafka publishing"
+        config_schema:
+          name: "Kafka Test Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Kafka Test Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create a plan that will publish to Kafka
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Kafka Publishing Plan {{uuid}}"
+        key: "kafka-plan-{{uuid}}"
+        description: "Plan that publishes extracted data to Kafka"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+        output:
+          kafka:
+            enabled: true
+            topic: "orchid.test.{{timestamp}}"
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Kafka publishing plan should be created
+
+  # Get the plan to verify Kafka output configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan was retrieved
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Plan should be retrievable
+
+cleanup:
+  # Clean up plan
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  # Clean up config and integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

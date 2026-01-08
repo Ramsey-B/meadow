@@ -1,0 +1,190 @@
+name: Orchid API Key Authentication
+description: Test plan execution with API key authentication (header and query param)
+
+steps:
+  # Create integration for header-based API key
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "API Key Header Integration {{uuid}}"
+        description: "Integration for testing API key in header"
+        config_schema:
+          name: "API Key Header Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              api_key:
+                type: string
+            required:
+              - base_url
+              - api_key
+      expect:
+        status: 201
+      save_as: header_integration
+
+  # Create config with API key in header
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{header_integration.id}}"
+        name: "API Key Header Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          api_key: "test-api-key-12345"
+        auth:
+          type: api_key
+          location: header
+          key_field: api_key
+          header_name: X-API-Key
+      expect:
+        status: 201
+      save_as: header_config
+
+  # Verify header config was created
+  - assert:
+      variable: header_config.id
+      not_empty: true
+      message: Config with API key in header should be created
+
+  # Create a plan for header-based API key
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{header_integration.id}}"
+        name: "API Key Header Plan {{uuid}}"
+        key: "api-key-header-{{uuid}}"
+        description: "Plan that uses API key in header"
+        steps:
+          - id: fetch_with_header
+            type: request
+            method: GET
+            path: /api/test/authenticated
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: header_plan
+
+  # Verify header plan was created
+  - assert:
+      variable: header_plan.key
+      not_empty: true
+      message: Plan with header API key should be created
+
+  # Create integration for query param-based API key
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "API Key Query Integration {{uuid}}"
+        description: "Integration for testing API key in query param"
+        config_schema:
+          name: "API Key Query Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              api_token:
+                type: string
+            required:
+              - base_url
+              - api_token
+      expect:
+        status: 201
+      save_as: query_integration
+
+  # Create config with API key in query param
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{query_integration.id}}"
+        name: "API Key Query Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+          api_token: "query-token-67890"
+        auth:
+          type: api_key
+          location: query
+          key_field: api_token
+          query_param: apiKey
+      expect:
+        status: 201
+      save_as: query_config
+
+  # Verify query config was created
+  - assert:
+      variable: query_config.id
+      not_empty: true
+      message: Config with API key in query param should be created
+
+  # Create a plan for query param-based API key
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{query_integration.id}}"
+        name: "API Key Query Plan {{uuid}}"
+        key: "api-key-query-{{uuid}}"
+        description: "Plan that uses API key in query param"
+        steps:
+          - id: fetch_with_query
+            type: request
+            method: GET
+            path: /api/test/authenticated
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: query_plan
+
+  # Verify query plan was created
+  - assert:
+      variable: query_plan.key
+      not_empty: true
+      message: Plan with query param API key should be created
+
+cleanup:
+  # Clean up header resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{header_plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{header_config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{header_integration.id}}
+
+  # Clean up query resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{query_plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{query_config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{query_integration.id}}
