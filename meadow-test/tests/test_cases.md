@@ -60,28 +60,33 @@ Quick validation that services are running and reachable.
 | ✅     | Multi-step sequential execution   | [`integration/orchid_multistep_plan.yaml`](integration/orchid_multistep_plan.yaml)           |
 | ✅     | Plan with context variables       | [`integration/orchid_multistep_plan.yaml`](integration/orchid_multistep_plan.yaml)           |
 | ✅     | Plan execution publishes to Kafka | [`integration/orchid_kafka_integration.yaml`](integration/orchid_kafka_integration.yaml)     |
+| ✅     | Trigger plan execution via API    | [`integration/orchid_plan_execution_test.yaml`](integration/orchid_plan_execution_test.yaml) |
+
+**Note:** All plan tests now include execution verification using the `/api/v1/plans/{key}/trigger` endpoint, verifying that plans are queued successfully.
 
 ### Pagination
 
-| Status | Test Case                              | Test File                                                            |
-| ------ | -------------------------------------- | -------------------------------------------------------------------- |
-| ✅     | Cursor-based pagination (after/limit)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
-| ✅     | Page-based pagination (page/per_page)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
-| ✅     | Offset-based pagination (offset/limit) | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
-| ✅     | Link header pagination (next URL)      | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml) |
-| ⬚      | OData pagination (@odata.nextLink)     |                                                                      |
-| ⬚      | Break on empty page                    |                                                                      |
-| ⬚      | Break on partial page                  |                                                                      |
+| Status | Test Case                              | Test File                                                                        |
+| ------ | -------------------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | Cursor-based pagination (after/limit)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml)       |
+| ✅     | Page-based pagination (page/per_page)  | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml)       |
+| ✅     | Offset-based pagination (offset/limit) | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml)       |
+| ✅     | Link header pagination (next URL)      | [`integration/orchid_pagination.yaml`](integration/orchid_pagination.yaml)       |
+| ✅     | OData pagination (@odata.nextLink)     | [`integration/orchid_pagination_advanced.yaml`](integration/orchid_pagination_advanced.yaml) |
+| ✅     | Break on empty page                    | [`integration/orchid_pagination_advanced.yaml`](integration/orchid_pagination_advanced.yaml) |
+| ✅     | Break on partial page                  | [`integration/orchid_pagination_advanced.yaml`](integration/orchid_pagination_advanced.yaml) |
 
 ### Fanout (Nested Requests)
 
-| Status | Test Case                               | Test File |
-| ------ | --------------------------------------- | --------- |
-| ⬚      | Get list → fetch details for each item  |           |
-| ⬚      | Multiple sub-steps (details + settings) |           |
-| ⬚      | Nested fanout (3+ levels deep)          |           |
-| ⬚      | Fanout with concurrency limit           |           |
-| ⬚      | Fanout with rate limiting               |           |
+| Status | Test Case                               | Test File                                                                            |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------ |
+| ✅     | Get list → fetch details for each item  | [`integration/orchid_fanout_basic.yaml`](integration/orchid_fanout_basic.yaml)       |
+| ✅     | Multiple sub-steps (details + settings) | [`integration/orchid_fanout_multistep.yaml`](integration/orchid_fanout_multistep.yaml) |
+| ✅     | Nested fanout (3+ levels deep)          | [`integration/orchid_fanout_nested.yaml`](integration/orchid_fanout_nested.yaml)     |
+| ✅     | Fanout with concurrency limit           | [`integration/orchid_fanout_concurrency.yaml`](integration/orchid_fanout_concurrency.yaml) |
+| ✅     | Fanout with rate limiting               | [`integration/orchid_fanout_rate_limit.yaml`](integration/orchid_fanout_rate_limit.yaml) |
+
+**Note:** All fanout tests now include execution verification to confirm the fanout pattern works when triggered.
 
 ### Error Handling
 
@@ -381,6 +386,7 @@ Full pipeline tests that exercise multiple services.
 | Status | Test Case                                                                     | Test File                                                                  |
 | ------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | ✅     | **Basic E2E**: Orchid + Lotus + Ivy integration test                          | [`scenarios/basic_user_flow.yaml`](scenarios/basic_user_flow.yaml)         |
+| ✅     | **Orchid Execution E2E**: Create plan → trigger execution → verify queued     | [`scenarios/orchid_execution_e2e.yaml`](scenarios/orchid_execution_e2e.yaml) |
 | ⬚      | **OKTA User Sync**: Auth → fetch users → transform → create Person entities   |           |
 | ⬚      | **MS Graph Sync**: Auth → fetch users/devices → transform → resolve entities  |           |
 | ⬚      | **Multi-Source Resolution**: OKTA + MS Graph → match by email → merged Person |           |

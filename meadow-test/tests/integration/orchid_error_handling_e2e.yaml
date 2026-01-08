@@ -1,0 +1,241 @@
+name: Orchid Error Handling E2E Test
+description: |
+  End-to-end test for error handling:
+  1. Create plan that hits a non-existent endpoint (404)
+  2. Create plan with abort_on policy for 401
+  3. Validate error messages go to api-errors topic
+
+steps:
+  # ============================================================================
+  # SETUP: Integration + Config
+  # ============================================================================
+  
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Error Handling E2E {{uuid}}"
+        description: "Test error handling and routing to error topic"
+        config_schema:
+          name: "Error Test Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Error Test Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # TEST 1: Plan hitting 404 endpoint (should go to error topic)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "error-404-{{uuid}}"
+        name: "Error 404 Test Plan"
+        description: "Plan that hits a non-existent endpoint"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}/api/nonexistent/endpoint"
+            method: GET
+            # Route 4xx errors to error topic
+            ignore_on: [404]
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan_404
+
+  - assert:
+      variable: plan_404.key
+      not_empty: true
+      message: 404 plan should be created
+
+  # Record offset before triggering
+  - get_kafka_offset:
+      topic: api-errors
+      save_as: kafka_offset_404
+
+  # Trigger 404 plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan_404.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger_404
+
+  # Wait for execution
+  - wait:
+      duration: 3s
+      reason: Allow execution and error routing
+
+  # Validate 404 error goes to api-errors topic
+  - assert_kafka_message:
+      topic: api-errors
+      timeout: 30s
+      from_offset: "{{kafka_offset_404}}"
+      filter:
+        header: plan_key
+        equals: "{{plan_404.key}}"
+        has_field: request_url
+      assertions:
+        # === Metadata ===
+        - field: plan_key
+          equals: "{{plan_404.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/api/nonexistent/endpoint"
+
+        # === Error Response ===
+        - field: status_code
+          equals: 404
+
+        # === ACTUAL ERROR BODY from mock API (wrapped in array) ===
+        # Mock API returns: {"message": "Not Found"}
+        - field: response_body[0].message
+          equals: "Not Found"
+      save_as: error_message_404
+
+  # ============================================================================
+  # TEST 2: Plan with abort_on for 401 (auth failure should error)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "error-401-{{uuid}}"
+        name: "Error 401 Test Plan"
+        description: "Plan that hits an authenticated endpoint without auth"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}/api/v1/users"
+            method: GET
+            # Abort on auth failure - these go to error topic
+            abort_on: [401, 403]
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan_401
+
+  - assert:
+      variable: plan_401.key
+      not_empty: true
+      message: 401 plan should be created
+
+  # Record offset before triggering
+  - get_kafka_offset:
+      topic: api-errors
+      save_as: kafka_offset_401
+
+  # Trigger 401 plan (no auth, will fail)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan_401.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger_401
+
+  # Wait for execution
+  - wait:
+      duration: 3s
+      reason: Allow execution and error routing
+
+  # Validate 401 error goes to api-errors topic
+  - assert_kafka_message:
+      topic: api-errors
+      timeout: 30s
+      from_offset: "{{kafka_offset_401}}"
+      filter:
+        header: plan_key
+        equals: "{{plan_401.key}}"
+        has_field: request_url
+      assertions:
+        # === Metadata ===
+        - field: plan_key
+          equals: "{{plan_401.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/api/v1/users"
+
+        # === Error Response ===
+        - field: status_code
+          equals: 401
+
+        # === ACTUAL ERROR BODY from mock OKTA API (wrapped in array) ===
+        # Mock API returns: {"error": "missing authorization header"}
+        - field: response_body[0].error
+          equals: "missing authorization header"
+      save_as: error_message_401
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan_404.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan_401.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

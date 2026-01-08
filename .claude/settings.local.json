@@ -17,7 +17,9 @@
       "Bash(/Users/ramseybland/Documents/code/go/meadow/meadow-test/meadow-test run:*)",
       "Bash(go run:*)",
       "Bash(meadow-test/meadow-test run:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(meadow-test run:*)",
+      "Bash(./meadow-test/meadow-test run:*)"
     ]
   }
 }

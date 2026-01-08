@@ -1,0 +1,276 @@
+name: Orchid OKTA Users Sync with Full Data Validation
+description: |
+  End-to-end test that:
+  1. Creates integration with OAuth2 client credentials auth
+  2. Fetches OKTA users from mock API
+  3. Validates Kafka message contains actual user data with correct structure
+
+  This test proves the data pipeline is working correctly by asserting
+  on specific user data fields, not just checking "not empty".
+
+steps:
+  # ============================================================================
+  # SETUP: Integration with OAuth2 Config Schema
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "OKTA Users Test {{uuid}}"
+        description: "Integration for testing OKTA user sync"
+        config_schema:
+          name: "OKTA Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+              scope:
+                type: string
+            required:
+              - base_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OKTA Users Config"
+        values:
+          base_url: "{{mocks_url}}"
+          client_id: "test-client-id"
+          client_secret: "test-client-secret"
+          scope: "okta.users.read"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # AUTH FLOW: OAuth2 Client Credentials for OKTA
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OKTA OAuth2 Flow"
+        plan_definition:
+          url: "{{ config.base_url }}/oauth2/v1/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  # ============================================================================
+  # PLAN: Fetch OKTA Users (authenticated)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "okta-users-{{uuid}}"
+        name: "Fetch OKTA Users"
+        description: "Fetches users from OKTA API with OAuth2 auth"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/api/v1/users"
+            method: GET
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+          max_execution_seconds: 60
+      expect:
+        status: 201
+      save_as: plan
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering)
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for execution
+  - wait:
+      duration: 5s
+      reason: Allow OAuth2 token fetch + users fetch to complete
+
+  # ============================================================================
+  # VERIFY EXECUTION STATUS
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  # ============================================================================
+  # VALIDATE KAFKA: Verify actual OKTA user data structure
+  # ============================================================================
+
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      assertions:
+        # === Execution Metadata ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === HTTP Request Details ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/api/v1/users"
+        - field: status_code
+          equals: 200
+
+        # === Response Headers (verify rate limit headers from OKTA mock) ===
+        - field: response_headers.X-Rate-Limit-Limit
+          equals: "60"
+        - field: response_headers.Link
+          contains: 'rel="next"'
+
+        # === ACTUAL DATA VALIDATION ===
+        # Verify first user (John Doe) has expected OKTA structure
+        - field: response_body[0].id
+          equals: "okta-user-001"
+        - field: response_body[0].status
+          equals: "ACTIVE"
+        - field: response_body[0].created
+          equals: "2023-01-15T10:00:00Z"
+        - field: response_body[0].profile.firstName
+          equals: "John"
+        - field: response_body[0].profile.lastName
+          equals: "Doe"
+        - field: response_body[0].profile.email
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.login
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.department
+          equals: "Engineering"
+        - field: response_body[0].profile.title
+          equals: "Senior Developer"
+        - field: response_body[0].profile.mobilePhone
+          equals: "+1-555-0101"
+
+        # Verify second user (Jane Smith) - confirms array parsing
+        - field: response_body[1].id
+          equals: "okta-user-002"
+        - field: response_body[1].status
+          equals: "ACTIVE"
+        - field: response_body[1].profile.firstName
+          equals: "Jane"
+        - field: response_body[1].profile.lastName
+          equals: "Smith"
+        - field: response_body[1].profile.email
+          equals: "jane.smith@acme.com"
+        - field: response_body[1].profile.department
+          equals: "Marketing"
+        - field: response_body[1].profile.title
+          equals: "Marketing Manager"
+
+        # Verify third user (Bob Wilson from Sales)
+        - field: response_body[2].id
+          equals: "okta-user-003"
+        - field: response_body[2].profile.firstName
+          equals: "Bob"
+        - field: response_body[2].profile.department
+          equals: "Sales"
+
+        # Verify fifth user (Charlie Brown - SUSPENDED status)
+        - field: response_body[4].id
+          equals: "okta-user-005"
+        - field: response_body[4].status
+          equals: "SUSPENDED"
+        - field: response_body[4].profile.firstName
+          equals: "Charlie"
+        - field: response_body[4].profile.department
+          equals: "HR"
+      save_as: kafka_message
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

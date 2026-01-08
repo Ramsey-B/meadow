@@ -1,0 +1,301 @@
+name: Orchid OAuth2 Full E2E Test
+description: |
+  End-to-end test for OAuth2 client credentials flow:
+  1. Create integration with OAuth2 config schema
+  2. Create auth flow that fetches tokens from mock OKTA
+  3. Create config with OAuth2 credentials
+  4. Create plan that uses the auth flow
+  5. Trigger execution
+  6. Validate Kafka message shows successful authenticated request
+
+steps:
+  # ============================================================================
+  # SETUP: Integration with OAuth2 config schema
+  # ============================================================================
+  
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "OAuth2 E2E Test {{uuid}}"
+        description: "Full E2E test for OAuth2 authentication"
+        config_schema:
+          name: "OKTA OAuth2 Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+              scope:
+                type: string
+            required:
+              - base_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration should be created
+
+  # ============================================================================
+  # AUTH FLOW: Create OAuth2 client credentials flow
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OKTA OAuth2 E2E"
+        plan_definition:
+          url: "{{ config.base_url }}/oauth2/v1/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  - assert:
+      variable: auth_flow.id
+      not_empty: true
+      message: Auth flow should be created
+
+  # ============================================================================
+  # CONFIG: Create config with OAuth2 credentials
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OAuth2 E2E Config"
+        values:
+          base_url: "{{mocks_url}}"
+          client_id: "test-client-id"
+          client_secret: "test-client-secret"
+          scope: "okta.users.read"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config should be created
+
+  # ============================================================================
+  # PLAN: Create plan that uses auth flow to fetch OKTA users
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "oauth2-e2e-{{uuid}}"
+        name: "OAuth2 E2E Plan"
+        description: "Fetch OKTA users with OAuth2 authentication"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/api/v1/users"
+            method: GET
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+            params:
+              limit: "3"
+          max_execution_seconds: 60
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan should be created with a key
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering)
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # EXECUTE: Trigger the plan
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for auth + execution
+  - wait:
+      duration: 5s
+      reason: Allow OAuth2 token fetch and plan execution
+
+  # ============================================================================
+  # VERIFY: Check execution completed
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  # ============================================================================
+  # VALIDATE KAFKA: Verify authenticated request was made
+  # ============================================================================
+
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      assertions:
+        # === Metadata ===
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_url
+          contains: "/api/v1/users"
+        - field: request_method
+          equals: GET
+
+        # === Response: OAuth2 worked if we get 200 ===
+        - field: status_code
+          equals: 200
+
+        # === RATE LIMIT HEADERS: Prove OKTA mock was hit ===
+        - field: response_headers.X-Rate-Limit-Limit
+          equals: "60"
+        - field: response_headers.X-Rate-Limit-Remaining
+          not_empty: true
+
+        # === ACTUAL OKTA USER DATA (limit=3 returns first 3 users) ===
+        # First user: John Doe (Senior Developer, Engineering)
+        - field: response_body[0].id
+          equals: "okta-user-001"
+        - field: response_body[0].status
+          equals: "ACTIVE"
+        - field: response_body[0].created
+          equals: "2023-01-15T10:00:00Z"
+        - field: response_body[0].profile.firstName
+          equals: "John"
+        - field: response_body[0].profile.lastName
+          equals: "Doe"
+        - field: response_body[0].profile.email
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.login
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.department
+          equals: "Engineering"
+        - field: response_body[0].profile.title
+          equals: "Senior Developer"
+
+        # Second user: Jane Smith (Marketing Manager)
+        - field: response_body[1].id
+          equals: "okta-user-002"
+        - field: response_body[1].status
+          equals: "ACTIVE"
+        - field: response_body[1].profile.firstName
+          equals: "Jane"
+        - field: response_body[1].profile.lastName
+          equals: "Smith"
+        - field: response_body[1].profile.department
+          equals: "Marketing"
+        - field: response_body[1].profile.title
+          equals: "Marketing Manager"
+
+        # Third user: Bob Wilson (Account Executive, Sales)
+        - field: response_body[2].id
+          equals: "okta-user-003"
+        - field: response_body[2].status
+          equals: "ACTIVE"
+        - field: response_body[2].profile.firstName
+          equals: "Bob"
+        - field: response_body[2].profile.lastName
+          equals: "Wilson"
+        - field: response_body[2].profile.department
+          equals: "Sales"
+        - field: response_body[2].profile.title
+          equals: "Account Executive"
+
+        # === Timing ===
+        - field: duration_ms
+          not_null: true
+      save_as: kafka_message
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

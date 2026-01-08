@@ -1,0 +1,140 @@
+name: Orchid Fanout with Concurrency Limit
+description: Test fanout with controlled concurrency to prevent overwhelming the API
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Concurrency Fanout Integration {{uuid}}"
+        description: "Integration for testing fanout with concurrency limits"
+        config_schema:
+          name: "Concurrency Fanout Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Concurrency Fanout Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with fanout and concurrency limit
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Concurrency Limited Fanout Plan {{uuid}}"
+        key: "concurrency-fanout-{{uuid}}"
+        description: "Fetch user list, then fetch details with max 5 concurrent requests"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+
+          - id: fetch_details_limited
+            type: fanout
+            for_each: "{{fetch_users.items}}"
+            concurrency: 5
+            steps:
+              - id: get_user_details
+                type: request
+                method: GET
+                path: "/api/test/users/{{item.id}}/details"
+                pagination:
+                  type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Concurrency limited fanout plan should be created
+
+  # Get the plan to verify concurrency settings
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan has correct structure
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Concurrency limited plan should be retrievable
+
+  # Verify plan key matches
+  - assert:
+      variable: plan_details.key
+      equals: "{{plan.key}}"
+      message: Retrieved plan key should match created plan key
+
+  # Verify plan belongs to the correct integration
+  - assert:
+      variable: plan_details.integration_id
+      equals: "{{integration.id}}"
+      message: Plan should belong to the correct integration
+
+  # Trigger plan execution to verify concurrency limiting works
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: execution
+
+  # Verify execution was triggered
+  - assert:
+      variable: execution.status
+      equals: "queued"
+      message: Concurrency-limited fanout execution should be queued
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

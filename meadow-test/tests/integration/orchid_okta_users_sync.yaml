@@ -1,0 +1,256 @@
+name: Orchid MS Graph Users Sync E2E
+description: |
+  End-to-end test for MS Graph users sync:
+  1. Create integration with MS Graph OAuth2 config
+  2. Create auth flow for MS Graph API
+  3. Create plan to fetch users from MS Graph
+  4. Validate Kafka message contains actual MS Graph user data
+
+  This test validates a DIFFERENT provider than OKTA to ensure
+  the pipeline handles multiple API formats correctly.
+
+steps:
+  # ============================================================================
+  # SETUP: Integration with MS Graph OAuth2 Config
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "MS Graph Users Test {{uuid}}"
+        description: "Integration for MS Graph user sync"
+        config_schema:
+          name: "MS Graph Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              tenant_id:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+            required:
+              - base_url
+              - tenant_id
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "MS Graph Config"
+        values:
+          base_url: "{{mocks_url}}"
+          tenant_id: "test-tenant-id"
+          client_id: "test-client-id"
+          client_secret: "test-client-secret"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # AUTH FLOW: MS Graph OAuth2 (different token endpoint than OKTA)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "MS Graph OAuth2"
+        plan_definition:
+          url: "{{ config.base_url }}/{{ config.tenant_id }}/oauth2/v2.0/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope=https://graph.microsoft.com/.default"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  # ============================================================================
+  # PLAN: Fetch MS Graph users (different structure than OKTA)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "msgraph-users-{{uuid}}"
+        name: "MS Graph Users Sync"
+        description: "Fetch users from MS Graph API"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/v1.0/users"
+            method: GET
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+          max_execution_seconds: 60
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan should be created with a key
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering)
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger_response
+
+  - assert:
+      variable: trigger_response.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  - wait:
+      duration: 5s
+      reason: Allow OAuth2 token fetch and MS Graph API call
+
+  # ============================================================================
+  # VERIFY EXECUTION
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  # ============================================================================
+  # VALIDATE KAFKA: MS Graph user data has DIFFERENT structure than OKTA
+  # ============================================================================
+
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      assertions:
+        # === Metadata ===
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_url
+          contains: "/v1.0/users"
+        - field: request_method
+          equals: GET
+        - field: status_code
+          equals: 200
+
+        # === First MS Graph user (John Doe) - different fields than OKTA ===
+        # MS Graph returns { "@odata.context": "...", "value": [...] } (wrapped in array)
+        - field: response_body[0].value[0].id
+          equals: "msg-user-001"
+        - field: response_body[0].value[0].displayName
+          equals: "John Doe"
+        - field: response_body[0].value[0].givenName
+          equals: "John"
+        - field: response_body[0].value[0].surname
+          equals: "Doe"
+        - field: response_body[0].value[0].mail
+          equals: "john.doe@acme.com"
+        - field: response_body[0].value[0].userPrincipalName
+          equals: "john.doe@acme.onmicrosoft.com"
+        - field: response_body[0].value[0].jobTitle
+          equals: "Senior Developer"
+        - field: response_body[0].value[0].department
+          equals: "Engineering"
+
+        # === Second MS Graph user (Jane Smith) ===
+        - field: response_body[0].value[1].id
+          equals: "msg-user-002"
+        - field: response_body[0].value[1].displayName
+          equals: "Jane Smith"
+        - field: response_body[0].value[1].mail
+          equals: "jane.smith@acme.com"
+        - field: response_body[0].value[1].department
+          equals: "Marketing"
+
+        # === Third MS Graph user (Bob Wilson from Sales) ===
+        - field: response_body[0].value[2].id
+          equals: "msg-user-003"
+        - field: response_body[0].value[2].displayName
+          equals: "Bob Wilson"
+        - field: response_body[0].value[2].department
+          equals: "Sales"
+      save_as: kafka_message
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

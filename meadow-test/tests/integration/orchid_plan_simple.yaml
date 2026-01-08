@@ -1,15 +1,24 @@
-name: Orchid Simple Plan Creation
-description: Test creating a simple single-step plan in Orchid
+name: Orchid Simple Plan Execution E2E
+description: |
+  The simplest possible Orchid E2E test:
+  1. Create integration + config
+  2. Create a single-step plan that fetches from mock API
+  3. Trigger execution
+  4. Verify execution completes
+  5. Validate Kafka message contains expected data
 
 steps:
-  # First create an integration to use for the plan
+  # ============================================================================
+  # SETUP: Integration + Config
+  # ============================================================================
+  
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/integrations
       body:
-        name: "Test Integration for Plans {{uuid}}"
-        description: "Integration for testing plan execution"
+        name: "Simple Test {{uuid}}"
+        description: "Simple integration for basic execution test"
         config_schema:
           name: "Simple Config"
           schema:
@@ -23,68 +32,169 @@ steps:
         status: 201
       save_as: integration
 
-  # Create a config for this integration
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
         integration_id: "{{integration.id}}"
-        name: "Test Config {{uuid}}"
+        name: "Simple Test Config"
         values:
-          base_url: "http://localhost:8090"
-        auth:
-          type: none
+          base_url: "{{mocks_url}}"
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Create a simple single-step plan that fetches data from the mock API
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config ID should be returned
+
+  # ============================================================================
+  # CREATE PLAN: Single GET request to mock health endpoint
+  # ============================================================================
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "Simple Test Plan {{uuid}}"
-        key: "simple-test-{{uuid}}"
-        description: "Single-step plan for testing"
-        steps:
-          - id: fetch_users
-            type: request
+        key: "simple-plan-{{uuid}}"
+        name: "Simple Health Check Plan"
+        description: "Fetches health endpoint from mock API"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}/health"
             method: GET
-            path: /api/test/users
-            pagination:
-              type: none
+          max_execution_seconds: 30
       expect:
         status: 201
       save_as: plan
 
-  # Verify the plan was created
   - assert:
       variable: plan.key
       not_empty: true
       message: Plan key should be returned
 
-  # List plans to verify it was created
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/plans?integration_id={{integration.id}}
-      expect:
-        status: 200
-      save_as: plans_list
-
-  # Get the specific plan
+  # Verify plan is retrievable
   - http_request:
       service: orchid
       method: GET
       path: /api/v1/plans/{{plan.key}}
       expect:
         status: 200
+      save_as: plan_details
+
+  - assert:
+      variable: plan_details.integration_id
+      equals: "{{integration.id}}"
+      message: Plan should belong to correct integration
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering - for efficient message reading)
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # TRIGGER EXECUTION
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for execution to be picked up and completed
+  - wait:
+      duration: 3s
+      reason: Allow execution queue to process
+
+  # ============================================================================
+  # QUERY FOR COMPLETED EXECUTION
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  # Get the first (most recent) execution
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  # ============================================================================
+  # VALIDATE KAFKA MESSAGE
+  # ============================================================================
+
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        # Only match API response messages (have request_url), not execution events
+        has_field: request_url
+      assertions:
+        # === Metadata validation ===
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: integration
+          contains: "Simple Test"
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request validation ===
+        - field: request_url
+          contains: "/health"
+        - field: request_method
+          equals: GET
+
+        # === Response validation ===
+        - field: status_code
+          equals: 200
+
+        # === ACTUAL DATA: Validate /health response structure ===
+        # The mock API returns {"status": "healthy"} (wrapped in response_body array)
+        - field: response_body[0].status
+          equals: "healthy"
+
+        # === Timing validation ===
+        - field: duration_ms
+          not_null: true
+      save_as: kafka_message
 
 cleanup:
-  # Clean up in reverse order (use key for plan deletion)
   - http_request:
       service: orchid
       method: DELETE

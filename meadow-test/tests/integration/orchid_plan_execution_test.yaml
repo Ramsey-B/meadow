@@ -1,0 +1,101 @@
+name: Orchid Plan Execution Test
+description: Test executing an Orchid plan and verifying it runs
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Execution Test Integration {{uuid}}"
+        description: "Integration for testing plan execution"
+        config_schema:
+          name: "Execution Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Execution Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create a simple plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Execution Test Plan {{uuid}}"
+        key: "exec-test-{{uuid}}"
+        description: "Plan for testing execution"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Try to trigger/execute the plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: execution
+
+  # Verify execution was triggered
+  - assert:
+      variable: execution.status
+      equals: "queued"
+      message: Execution should be queued
+
+  # Verify message ID was returned
+  - assert:
+      variable: execution.message_id
+      not_empty: true
+      message: Message ID should be returned
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

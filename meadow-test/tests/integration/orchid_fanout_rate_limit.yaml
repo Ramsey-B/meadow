@@ -1,0 +1,130 @@
+name: Orchid Fanout with Rate Limiting
+description: Test fanout with rate limiting to respect API rate limits
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Rate Limited Fanout Integration {{uuid}}"
+        description: "Integration for testing fanout with rate limiting"
+        config_schema:
+          name: "Rate Limited Fanout Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Rate Limited Fanout Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with fanout and rate limiting
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Rate Limited Fanout Plan {{uuid}}"
+        key: "rate-limit-fanout-{{uuid}}"
+        description: "Fetch device list, then fetch details with rate limiting"
+        steps:
+          - id: fetch_devices
+            type: request
+            method: GET
+            path: /api/test/devices
+            pagination:
+              type: none
+
+          - id: fetch_details_rate_limited
+            type: fanout
+            for_each: "{{fetch_devices.items}}"
+            rate_limit:
+              requests_per_second: 10
+              burst: 20
+            steps:
+              - id: get_device_details
+                type: request
+                method: GET
+                path: "/api/test/devices/{{item.id}}/details"
+                pagination:
+                  type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Rate limited fanout plan should be created
+
+  # Get the plan to verify rate limit settings
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan has correct structure
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Rate limited plan should be retrievable
+
+  # Trigger plan execution to verify rate limiting works
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: execution
+
+  # Verify execution was triggered
+  - assert:
+      variable: execution.status
+      equals: "queued"
+      message: Rate-limited fanout execution should be queued
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

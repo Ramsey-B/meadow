@@ -1,0 +1,124 @@
+name: Orchid Nested Fanout
+description: Test nested fanout with 3+ levels deep (organizations → teams → members)
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Nested Fanout Integration {{uuid}}"
+        description: "Integration for testing nested fanout (3+ levels)"
+        config_schema:
+          name: "Nested Fanout Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Nested Fanout Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with nested fanout: orgs → teams → members (3 levels)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Nested Fanout Plan {{uuid}}"
+        key: "nested-fanout-{{uuid}}"
+        description: "Fetch organizations, then teams for each org, then members for each team"
+        steps:
+          # Level 1: Fetch organizations
+          - id: fetch_orgs
+            type: request
+            method: GET
+            path: /api/test/organizations
+            pagination:
+              type: none
+
+          # Level 2: For each org, fetch teams
+          - id: fetch_teams_per_org
+            type: fanout
+            for_each: "{{fetch_orgs.items}}"
+            steps:
+              - id: get_teams
+                type: request
+                method: GET
+                path: "/api/test/organizations/{{item.id}}/teams"
+                pagination:
+                  type: none
+
+              # Level 3: For each team, fetch members
+              - id: fetch_members_per_team
+                type: fanout
+                for_each: "{{get_teams.items}}"
+                steps:
+                  - id: get_members
+                    type: request
+                    method: GET
+                    path: "/api/test/teams/{{item.id}}/members"
+                    pagination:
+                      type: none
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Nested fanout plan should be created
+
+  # Get the plan to verify nested structure
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan has correct structure
+  - assert:
+      variable: plan_details.key
+      not_empty: true
+      message: Nested fanout plan should be retrievable
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

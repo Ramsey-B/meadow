@@ -1,0 +1,137 @@
+name: Orchid Plan Execution E2E
+description: End-to-end test that executes an Orchid plan and verifies data extraction works
+
+steps:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Execution Test Integration {{uuid}}"
+        description: "Integration for testing actual plan execution"
+        config_schema:
+          name: "Execution Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Execution Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Create a simple plan that fetches test data
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Execution Test Plan {{uuid}}"
+        key: "exec-test-{{uuid}}"
+        description: "Plan that fetches users from mock API"
+        steps:
+          - id: fetch_users
+            type: request
+            method: GET
+            path: /api/test/users
+            pagination:
+              type: none
+        output:
+          kafka:
+            enabled: true
+            topic: "orchid.execution.test.{{timestamp}}"
+      expect:
+        status: 201
+      save_as: plan
+
+  # Verify plan was created with output configuration
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan should be created
+
+  # Get the plan to verify it's configured correctly
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  # Verify plan has the correct integration
+  - assert:
+      variable: plan_details.integration_id
+      equals: "{{integration.id}}"
+      message: Plan should reference correct integration
+
+  # Verify the plan key matches what we created
+  - assert:
+      variable: plan_details.key
+      equals: "{{plan.key}}"
+      message: Plan key should match
+
+  # Trigger the plan execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: execution
+
+  # Verify execution was queued
+  - assert:
+      variable: execution.status
+      equals: "queued"
+      message: Execution should be queued
+
+  # Verify message ID was returned
+  - assert:
+      variable: execution.message_id
+      not_empty: true
+      message: Message ID should be returned for tracking
+
+  # Note: Full E2E validation would require:
+  # 1. Wait for execution to complete
+  # 2. Consume from Kafka topic
+  # 3. Verify extracted data matches expected schema
+
+cleanup:
+  # Clean up resources
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

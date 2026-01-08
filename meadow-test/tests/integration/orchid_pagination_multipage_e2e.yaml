@@ -1,0 +1,278 @@
+name: Orchid Multi-Page Pagination E2E
+description: |
+  End-to-end test for cursor-based pagination with multiple pages:
+  1. Create auth flow for OKTA OAuth2
+  2. Create plan that fetches ALL users with pagination (limit=3, 8 users total = 3 pages)
+  3. Trigger execution
+  4. Validate multiple Kafka messages were published (one per page)
+
+steps:
+  # ============================================================================
+  # SETUP: Integration with OAuth2
+  # ============================================================================
+  
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Pagination Multi-Page E2E {{uuid}}"
+        description: "Test multi-page pagination with Kafka validation"
+        config_schema:
+          name: "OKTA Pagination Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
+              scope:
+                type: string
+            required:
+              - base_url
+              - client_id
+              - client_secret
+      expect:
+        status: 201
+      save_as: integration
+
+  # ============================================================================
+  # AUTH FLOW: Create OAuth2 client credentials flow
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OKTA OAuth2 Pagination"
+        plan_definition:
+          url: "{{ config.base_url }}/oauth2/v1/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  # ============================================================================
+  # CONFIG: Create config with OAuth2 credentials
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Pagination E2E Config"
+        values:
+          base_url: "{{mocks_url}}"
+          client_id: "test-client-id"
+          client_secret: "test-client-secret"
+          scope: "okta.users.read"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # PLAN: Cursor pagination that fetches ALL users (8 users, limit 3 = 3 pages)
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "pagination-multi-{{uuid}}"
+        name: "OKTA Users Multi-Page Sync"
+        description: "Fetch all OKTA users using cursor pagination"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/api/v1/users"
+            method: GET
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+            params:
+              limit: "3"
+              after: "{{ context.after || `\"\"` }}"
+            # Continue while we get results
+            while: "length(response.body) > `0`"
+            # Stop when we get fewer than the limit (last page)
+            break_when: "length(response.body) < `3`"
+            # Set cursor for next page
+            set_context:
+              after: "response.body[-1].id"
+          max_execution_seconds: 120
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Pagination plan should be created
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering)
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for all pages to be fetched
+  - wait:
+      duration: 10s
+      reason: Allow all pagination requests to complete
+
+  # ============================================================================
+  # VERIFY EXECUTION
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  # ============================================================================
+  # VALIDATE KAFKA: Count messages (should have 3 for 3 pages)
+  # ============================================================================
+
+  - count_kafka_messages:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      min_count: 2
+      save_as: kafka_count
+
+  # Verify the FIRST PAGE message contains users 1-3
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      assertions:
+        # === Metadata ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_url
+          contains: "/api/v1/users"
+        - field: request_method
+          equals: GET
+        - field: status_code
+          equals: 200
+
+        # === RATE LIMIT HEADERS (proves OKTA mock) ===
+        - field: response_headers.X-Rate-Limit-Limit
+          equals: "60"
+
+        # === FIRST PAGE: Users 1-3 (limit=3) ===
+        # User 1: John Doe
+        - field: response_body[0].id
+          equals: "okta-user-001"
+        - field: response_body[0].profile.firstName
+          equals: "John"
+        - field: response_body[0].profile.lastName
+          equals: "Doe"
+        - field: response_body[0].profile.department
+          equals: "Engineering"
+
+        # User 2: Jane Smith
+        - field: response_body[1].id
+          equals: "okta-user-002"
+        - field: response_body[1].profile.firstName
+          equals: "Jane"
+        - field: response_body[1].profile.department
+          equals: "Marketing"
+
+        # User 3: Bob Wilson
+        - field: response_body[2].id
+          equals: "okta-user-003"
+        - field: response_body[2].profile.firstName
+          equals: "Bob"
+        - field: response_body[2].profile.department
+          equals: "Sales"
+
+        # === PAGINATION: Link header proves pagination working ===
+        - field: response_headers.Link
+          contains: 'rel="next"'
+      save_as: first_page_message
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

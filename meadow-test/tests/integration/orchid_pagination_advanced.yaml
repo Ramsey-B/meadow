@@ -1,0 +1,206 @@
+name: Orchid Advanced Pagination Tests
+description: Test OData pagination, break on empty page, and break on partial page
+
+steps:
+  # Create integration for advanced pagination tests
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Advanced Pagination Integration {{uuid}}"
+        description: "Integration for testing advanced pagination scenarios"
+        config_schema:
+          name: "Advanced Pagination Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Advanced Pagination Config {{uuid}}"
+        values:
+          base_url: "http://localhost:8090"
+        auth:
+          type: none
+      expect:
+        status: 201
+      save_as: config
+
+  # Test 1: OData pagination (@odata.nextLink)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OData Pagination Plan {{uuid}}"
+        key: "odata-pagination-{{uuid}}"
+        description: "Test OData pagination with @odata.nextLink"
+        steps:
+          - id: fetch_with_odata
+            type: request
+            method: GET
+            path: /api/test/paginated/odata
+            pagination:
+              type: odata
+              next_link_path: "@odata.nextLink"
+              items_path: "value"
+      expect:
+        status: 201
+      save_as: odata_plan
+
+  # Verify OData plan created
+  - assert:
+      variable: odata_plan.key
+      not_empty: true
+      message: OData pagination plan should be created
+
+  # Test 2: Break on empty page
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Break on Empty Page Plan {{uuid}}"
+        key: "break-empty-{{uuid}}"
+        description: "Test pagination that stops when encountering an empty page"
+        steps:
+          - id: fetch_break_empty
+            type: request
+            method: GET
+            path: /api/test/paginated/break-empty
+            pagination:
+              type: offset
+              offset_param: offset
+              limit_param: limit
+              limit: 10
+              items_path: data
+              break_on_empty: true
+      expect:
+        status: 201
+      save_as: empty_plan
+
+  # Verify empty page break plan created
+  - assert:
+      variable: empty_plan.key
+      not_empty: true
+      message: Break on empty page plan should be created
+
+  # Test 3: Break on partial page (when returned items < limit)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Break on Partial Page Plan {{uuid}}"
+        key: "break-partial-{{uuid}}"
+        description: "Test pagination that stops when receiving fewer items than limit"
+        steps:
+          - id: fetch_break_partial
+            type: request
+            method: GET
+            path: /api/test/paginated/break-partial
+            pagination:
+              type: page
+              page_param: page
+              per_page_param: per_page
+              per_page: 10
+              items_path: data
+              break_on_partial: true
+      expect:
+        status: 201
+      save_as: partial_plan
+
+  # Verify partial page break plan created
+  - assert:
+      variable: partial_plan.key
+      not_empty: true
+      message: Break on partial page plan should be created
+
+  # Get OData plan to verify configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{odata_plan.key}}
+      expect:
+        status: 200
+      save_as: odata_details
+
+  # Verify OData plan retrievable
+  - assert:
+      variable: odata_details.key
+      not_empty: true
+      message: OData plan should be retrievable
+
+  # Get empty page break plan to verify configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{empty_plan.key}}
+      expect:
+        status: 200
+      save_as: empty_details
+
+  # Verify empty page break plan retrievable
+  - assert:
+      variable: empty_details.key
+      not_empty: true
+      message: Empty page break plan should be retrievable
+
+  # Get partial page break plan to verify configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{partial_plan.key}}
+      expect:
+        status: 200
+      save_as: partial_details
+
+  # Verify partial page break plan retrievable
+  - assert:
+      variable: partial_details.key
+      not_empty: true
+      message: Partial page break plan should be retrievable
+
+cleanup:
+  # Clean up plans
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{odata_plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{empty_plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{partial_plan.key}}
+
+  # Clean up config and integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
