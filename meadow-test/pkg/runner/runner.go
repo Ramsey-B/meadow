@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,7 +25,9 @@ type Config struct {
 	TestFiles    []string
 	DryRun       bool
 	Verbose      bool
+	ShowFailures bool // Show failure details without verbose step output
 	ReportFormat string
+	Parallel     int // Number of parallel workers (0 = sequential)
 
 	// Service URLs
 	OrchidURL string
@@ -57,12 +60,23 @@ type TestResult struct {
 
 // Run executes the test suite
 func Run(config Config) (*Result, error) {
-	ctx := context.Background()
-	testCtx := NewTestContext(ctx, config)
-
 	result := &Result{
 		Tests: make([]TestResult, 0),
+		Total: len(config.TestFiles),
 	}
+
+	// Use parallel execution if configured
+	if config.Parallel > 1 {
+		return runParallel(config, result)
+	}
+
+	return runSequential(config, result)
+}
+
+// runSequential executes tests one at a time
+func runSequential(config Config, result *Result) (*Result, error) {
+	ctx := context.Background()
+	testCtx := NewTestContext(ctx, config)
 
 	// Load helpers (fixtures and templates)
 	if err := loadHelpers(testCtx); err != nil {
@@ -71,55 +85,122 @@ func Run(config Config) (*Result, error) {
 
 	// Run each test file
 	for _, file := range config.TestFiles {
-		result.Total++
-
-		testResult := TestResult{
-			FilePath: file,
-		}
-
-		test, err := loadTest(file)
-		if err != nil {
-			testResult.Passed = false
-			testResult.Error = fmt.Sprintf("Failed to load test: %v", err)
-			result.Failed++
-			result.Tests = append(result.Tests, testResult)
-			continue
-		}
-
-		testResult.Name = test.Name
-
-		if config.DryRun {
-			fmt.Printf("✓ [DRY-RUN] %s (%s)\n", test.Name, file)
-			testResult.Passed = true
+		testResult := runSingleTest(config, file)
+		if testResult.Passed {
 			result.Passed++
-			result.Tests = append(result.Tests, testResult)
-			continue
-		}
-
-		// Run the test
-		fmt.Printf("▶ Running: %s\n", test.Name)
-		if test.Description != "" && config.Verbose {
-			fmt.Printf("  Description: %s\n", test.Description)
-		}
-
-		if err := runTest(testCtx, test); err != nil {
-			fmt.Printf("✗ FAILED: %s\n", test.Name)
-			if config.Verbose {
-				fmt.Printf("  Error: %v\n", err)
-			}
-			testResult.Passed = false
-			testResult.Error = err.Error()
-			result.Failed++
 		} else {
-			fmt.Printf("✓ PASSED: %s\n", test.Name)
-			testResult.Passed = true
-			result.Passed++
+			result.Failed++
 		}
-
 		result.Tests = append(result.Tests, testResult)
 	}
 
 	return result, nil
+}
+
+// runParallel executes tests concurrently with a worker pool
+func runParallel(config Config, result *Result) (*Result, error) {
+	numWorkers := config.Parallel
+	if numWorkers > len(config.TestFiles) {
+		numWorkers = len(config.TestFiles)
+	}
+
+	// Create channels
+	jobs := make(chan string, len(config.TestFiles))
+	results := make(chan TestResult, len(config.TestFiles))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for file := range jobs {
+				testResult := runSingleTest(config, file)
+				results <- testResult
+			}
+		}()
+	}
+
+	// Send jobs
+	for _, file := range config.TestFiles {
+		jobs <- file
+	}
+	close(jobs)
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	for testResult := range results {
+		if testResult.Passed {
+			result.Passed++
+		} else {
+			result.Failed++
+		}
+		result.Tests = append(result.Tests, testResult)
+	}
+
+	return result, nil
+}
+
+// runSingleTest executes a single test file
+func runSingleTest(config Config, file string) TestResult {
+	ctx := context.Background()
+	testCtx := NewTestContext(ctx, config)
+
+	// Always clean up tenant data at the end, regardless of success/failure
+	defer testCtx.CleanupTenant()
+
+	testResult := TestResult{
+		FilePath: file,
+	}
+
+	// Load helpers
+	if err := loadHelpers(testCtx); err != nil {
+		testResult.Passed = false
+		testResult.Error = fmt.Sprintf("Failed to load helpers: %v", err)
+		fmt.Printf("✗ FAILED: %s\n", file)
+		return testResult
+	}
+
+	test, err := loadTest(file)
+	if err != nil {
+		testResult.Passed = false
+		testResult.Error = fmt.Sprintf("Failed to load test: %v", err)
+		fmt.Printf("✗ FAILED: %s\n", file)
+		return testResult
+	}
+
+	testResult.Name = test.Name
+
+	if config.DryRun {
+		fmt.Printf("✓ [DRY-RUN] %s (%s)\n", test.Name, file)
+		testResult.Passed = true
+		return testResult
+	}
+
+	// Run the test
+	fmt.Printf("▶ Running: %s\n", test.Name)
+	if test.Description != "" && config.Verbose {
+		fmt.Printf("  Description: %s\n", test.Description)
+	}
+
+	if err := runTest(testCtx, test); err != nil {
+		fmt.Printf("✗ FAILED: %s\n", test.Name)
+		if config.Verbose || config.ShowFailures {
+			fmt.Printf("  Error: %v\n\n", err)
+		}
+		testResult.Passed = false
+		testResult.Error = err.Error()
+	} else {
+		fmt.Printf("✓ PASSED: %s\n", test.Name)
+		testResult.Passed = true
+	}
+
+	return testResult
 }
 
 // loadTest loads a test definition from a YAML file

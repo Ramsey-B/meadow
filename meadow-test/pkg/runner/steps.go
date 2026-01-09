@@ -82,9 +82,41 @@ func executeStep(testCtx *TestContext, step map[string]interface{}, stepLabel st
 	case "use_template":
 		return executeTemplate(testCtx, params)
 
+	case "set_variable":
+		return setVariable(testCtx, params)
+
 	default:
 		return fmt.Errorf("unknown step type: %s", stepType)
 	}
+}
+
+// setVariable sets a variable to a value (with interpolation)
+func setVariable(testCtx *TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("set_variable params must be a map")
+	}
+
+	name, ok := paramsMap["name"].(string)
+	if !ok {
+		return fmt.Errorf("set_variable requires 'name' parameter")
+	}
+
+	value, ok := paramsMap["value"]
+	if !ok {
+		return fmt.Errorf("set_variable requires 'value' parameter")
+	}
+
+	// Interpolate the value
+	interpolatedValue := testCtx.Interpolate(value)
+
+	testCtx.Set(name, interpolatedValue)
+
+	if testCtx.Verbose {
+		fmt.Printf("  [VAR] %s = %v\n", name, interpolatedValue)
+	}
+
+	return nil
 }
 
 // executeTemplate expands and executes a template

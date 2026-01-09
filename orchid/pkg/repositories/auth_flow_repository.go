@@ -222,3 +222,29 @@ func (r *AuthFlowRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}).Debugf("Deleted %s", authFlowsTable)
 	return nil
 }
+
+// DeleteByTenantID deletes all auth flows for a tenant (for testing cleanup)
+func (r *AuthFlowRepository) DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	ctx, span := tracing.StartSpan(ctx, "AuthFlowRepository.DeleteByTenantID")
+	defer span.End()
+
+	db := database.NewDeleteBuilder()
+	db.DeleteFrom(authFlowsTable).
+		Where(db.Equal("tenant_id", tenantID))
+
+	query, args := db.Build()
+	result, err := r.DB().ExecContext(ctx, query, args...)
+	if err != nil {
+		r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+			"tenant_id": tenantID,
+		}).Error("failed to delete auth flows by tenant")
+		return 0, err
+	}
+
+	rows, _ := result.RowsAffected()
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"tenant_id": tenantID,
+		"count":     rows,
+	}).Info("Deleted auth flows by tenant")
+	return rows, nil
+}

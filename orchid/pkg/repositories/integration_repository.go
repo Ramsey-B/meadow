@@ -243,3 +243,29 @@ func (r *IntegrationRepository) Delete(ctx context.Context, id uuid.UUID) error 
 	}).Debugf("Deleted %s", integrationsTable)
 	return nil
 }
+
+// DeleteByTenantID deletes all integrations for a tenant (for testing cleanup)
+func (r *IntegrationRepository) DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	ctx, span := tracing.StartSpan(ctx, "IntegrationRepository.DeleteByTenantID")
+	defer span.End()
+
+	db := database.NewDeleteBuilder()
+	db.DeleteFrom(integrationsTable).
+		Where(db.Equal("tenant_id", tenantID))
+
+	query, args := db.Build()
+	result, err := r.DB().ExecContext(ctx, query, args...)
+	if err != nil {
+		r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+			"tenant_id": tenantID,
+		}).Error("failed to delete integrations by tenant")
+		return 0, err
+	}
+
+	rows, _ := result.RowsAffected()
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"tenant_id": tenantID,
+		"count":     rows,
+	}).Info("Deleted integrations by tenant")
+	return rows, nil
+}

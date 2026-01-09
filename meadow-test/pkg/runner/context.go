@@ -44,8 +44,14 @@ type TestContext struct {
 	httpClient *http.Client
 }
 
-// NewTestContext creates a new test context
+// NewTestContext creates a new test context with a unique tenant ID
 func NewTestContext(ctx context.Context, config Config) *TestContext {
+	// Generate a unique tenant ID for this test to ensure isolation
+	testTenant := uuid.New().String()
+	if config.Verbose {
+		fmt.Printf("  [TENANT] Using unique tenant ID: %s\n", testTenant)
+	}
+
 	return &TestContext{
 		ctx:          ctx,
 		OrchidURL:    config.OrchidURL,
@@ -53,7 +59,7 @@ func NewTestContext(ctx context.Context, config Config) *TestContext {
 		IvyURL:       config.IvyURL,
 		MocksURL:     config.MocksURL,
 		KafkaBrokers: config.KafkaBrokers,
-		TestTenant:   config.TestTenant,
+		TestTenant:   testTenant,
 		Verbose:      config.Verbose,
 		vars:         make(map[string]interface{}),
 		fixtures:     make(map[string]interface{}),
@@ -325,3 +331,54 @@ func (tc *TestContext) resolveNestedPath(path string) interface{} {
 
 	return val
 }
+
+// CleanupTenant deletes all data for the test's tenant from all services
+// This ensures test isolation even if the test fails or cleanup steps don't run
+func (tc *TestContext) CleanupTenant() {
+	if tc.Verbose {
+		fmt.Printf("  [CLEANUP] Deleting tenant data: %s\n", tc.TestTenant)
+	}
+
+	// Clean up Orchid
+	tc.deleteTenantFromService(tc.OrchidURL, "orchid")
+
+	// Clean up Lotus
+	tc.deleteTenantFromService(tc.LotusURL, "lotus")
+
+	// Clean up Ivy
+	tc.deleteTenantFromService(tc.IvyURL, "ivy")
+
+	// Note: Mock endpoints are NOT cleared here because:
+	// 1. Each test uses unique mock paths (e.g., /mock/foo-{{uuid}})
+	// 2. Clearing all mocks would break parallel test execution
+	// 3. Tests should clean up their own mocks in their cleanup section if needed
+}
+
+func (tc *TestContext) deleteTenantFromService(serviceURL, serviceName string) {
+	if serviceURL == "" {
+		return
+	}
+
+	url := fmt.Sprintf("%s/api/v1/tenant/%s", serviceURL, tc.TestTenant)
+	req, err := http.NewRequestWithContext(tc.ctx, "DELETE", url, nil)
+	if err != nil {
+		if tc.Verbose {
+			fmt.Printf("  [CLEANUP] Failed to create request for %s: %v\n", serviceName, err)
+		}
+		return
+	}
+
+	resp, err := tc.httpClient.Do(req)
+	if err != nil {
+		if tc.Verbose {
+			fmt.Printf("  [CLEANUP] Failed to delete tenant from %s: %v\n", serviceName, err)
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	if tc.Verbose && resp.StatusCode == http.StatusOK {
+		fmt.Printf("  [CLEANUP] Cleaned up %s tenant data\n", serviceName)
+	}
+}
+

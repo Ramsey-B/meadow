@@ -1,0 +1,199 @@
+name: Orchid Scheduled Plan Execution
+description: |
+  Test creating a plan with a schedule and verifying it gets configured correctly.
+  Note: Actual scheduled execution timing is not tested in integration tests.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/scheduled-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            execution_type: "scheduled"
+            data:
+              records:
+                - id: "rec-001"
+                  timestamp: "2024-01-01T12:00:00Z"
+                - id: "rec-002"
+                  timestamp: "2024-01-01T12:05:00Z"
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Scheduled Test {{uuid}}"
+        description: "Test scheduled plan execution"
+        config_schema:
+          name: "Scheduled Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Scheduled Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # TEST: Create plan with cron schedule
+  # ============================================================================
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "scheduled-plan-{{uuid}}"
+        name: "Scheduled Plan"
+        description: "Plan that runs on a schedule"
+        enabled: true
+        schedule:
+          cron: "*/15 * * * *"
+          timezone: "America/Los_Angeles"
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan key should be returned
+
+  # Verify plan has schedule configuration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  - assert:
+      variable: plan_details.enabled
+      equals: true
+      message: Plan should be enabled
+
+  - assert:
+      variable: plan_details.plan_definition.Data.max_execution_seconds
+      equals: 30
+      message: Plan should have max_execution_seconds configured
+
+  # ============================================================================
+  # TEST: Manual trigger still works for scheduled plan
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - wait:
+      duration: 5s
+      reason: Allow execution to complete
+
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Manual trigger of scheduled plan should succeed
+
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: status_code
+          equals: 200
+        - field: response_body[0].execution_type
+          equals: "scheduled"
+        - field: response_body[0].data.records[0].id
+          equals: "rec-001"
+        - field: response_body[0].data.records[1].id
+          equals: "rec-002"
+      save_as: kafka_message
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

@@ -1,0 +1,213 @@
+name: Orchid Manual Plan Trigger
+description: |
+  Test manual triggering of Orchid plans via the API.
+  Validates the trigger endpoint and execution status tracking.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/manual-trigger-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            trigger_type: "manual"
+            triggered_at: "{{timestamp}}"
+            data:
+              users:
+                - id: "user-001"
+                  name: "Manual Trigger User"
+                  email: "manual@example.com"
+                - id: "user-002"
+                  name: "Second User"
+                  email: "second@example.com"
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Manual Trigger Test {{uuid}}"
+        description: "Test manual plan triggering"
+        config_schema:
+          name: "Manual Trigger Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Manual Trigger Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "manual-trigger-{{uuid}}"
+        name: "Manual Trigger Plan"
+        description: "Plan for testing manual triggers"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan key should be returned
+
+  # ============================================================================
+  # TEST: Manual trigger
+  # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger plan manually
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  - assert:
+      variable: trigger.message_id
+      not_empty: true
+      message: Trigger should return message ID
+
+  - wait:
+      duration: 5s
+      reason: Allow execution to complete
+
+  # Verify execution was created
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Execution should be successful
+
+  - assert:
+      variable: executions[0].plan_key
+      equals: "{{plan.key}}"
+      message: Execution should reference correct plan
+
+  # Verify Kafka message
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: status_code
+          equals: 200
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/mock/manual-trigger-"
+        - field: response_body[0].trigger_type
+          equals: "manual"
+        - field: response_body[0].data.users[0].id
+          equals: "user-001"
+        - field: response_body[0].data.users[0].name
+          equals: "Manual Trigger User"
+        - field: response_body[0].data.users[0].email
+          equals: "manual@example.com"
+        - field: response_body[0].data.users[1].id
+          equals: "user-002"
+        - field: response_body[0].data.users[1].name
+          equals: "Second User"
+      save_as: kafka_message
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

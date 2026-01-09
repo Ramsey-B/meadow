@@ -1,0 +1,188 @@
+name: Orchid Repeat Execution
+description: |
+  Test plan execution with repeat_count configuration.
+  The plan should execute multiple times in sequence.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/repeat-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            iteration_data:
+              batch_id: "batch-001"
+              items:
+                - id: "item-1"
+                  value: 100
+                - id: "item-2"
+                  value: 200
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Repeat Execution Test {{uuid}}"
+        description: "Test repeat execution"
+        config_schema:
+          name: "Repeat Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Repeat Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with repeat count
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "repeat-exec-{{uuid}}"
+        name: "Repeat Execution Plan"
+        description: "Plan that repeats 3 times"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+          repeat_count: 3
+          wait_between_ms: 500
+          max_execution_seconds: 60
+      expect:
+        status: 201
+      save_as: plan
+
+  - assert:
+      variable: plan.key
+      not_empty: true
+      message: Plan key should be returned
+
+  # Record Kafka offset
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  # Wait for all repeats to complete
+  - wait:
+      duration: 8s
+      reason: Allow 3 repeat executions to complete
+
+  # Count Kafka messages - should have multiple for repeat execution
+  - count_kafka_messages:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      min_count: 1
+      save_as: message_count
+
+  - assert:
+      variable: message_count.count
+      not_empty: true
+      message: Should have at least one response message for repeated execution
+
+  # Verify first message content
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: status_code
+          equals: 200
+        - field: response_body[0].iteration_data.batch_id
+          equals: "batch-001"
+        - field: response_body[0].iteration_data.items[0].id
+          equals: "item-1"
+        - field: response_body[0].iteration_data.items[0].value
+          equals: 100
+        - field: response_body[0].iteration_data.items[1].id
+          equals: "item-2"
+        - field: response_body[0].iteration_data.items[1].value
+          equals: 200
+      save_as: first_message
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

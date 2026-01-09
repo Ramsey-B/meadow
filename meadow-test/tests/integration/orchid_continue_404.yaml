@@ -1,0 +1,148 @@
+name: Orchid Continue on 404 Not Found
+description: |
+  Test that Orchid continues execution when receiving 404 (Not Found).
+  This tests the ignore_on configuration where 404 is expected and shouldn't fail.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/missing-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 404
+          body:
+            error: "not_found"
+            message: "The requested resource does not exist"
+            code: "RESOURCE_NOT_FOUND"
+            resource_type: "user"
+            resource_id: "user-12345"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Continue 404 Test {{uuid}}"
+        description: "Test continue behavior on not found"
+        config_schema:
+          name: "Continue 404 Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Continue 404 Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan that ignores 404 errors
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "continue-404-{{uuid}}"
+        name: "Continue on 404 Plan"
+        description: "Plan that should continue on not found"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            # 404 is expected - continue execution
+            ignore_on: [404]
+            abort_on: [401, 403, 500]
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - wait:
+      duration: 3s
+      reason: Allow execution to complete
+
+  # Check execution status
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have execution record
+
+  # Verify execution succeeded (404 was ignored)
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Execution should succeed with 404 being ignored
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

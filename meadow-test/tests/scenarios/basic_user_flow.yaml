@@ -173,21 +173,36 @@ steps:
         status: 200
       save_as: mapping_result
 
-  # Verify mapping output
+  # Verify mapping output - COMPREHENSIVE VALIDATION
   - assert:
       variable: mapping_result.target_raw._source_id
       equals: "user-001"
-      message: Source ID should be mapped
+      message: Source ID should be mapped from api_id
 
   - assert:
       variable: mapping_result.target_raw.email
       equals: "test.user@example.com"
-      message: Email should be lowercased
+      message: Email should be lowercased by text_to_lower transformer
 
   - assert:
       variable: mapping_result.target_raw._entity_type
       not_empty: true
-      message: Entity type should be set
+      message: Entity type should be set from constant
+
+  - assert:
+      variable: mapping_result.target_raw._integration
+      equals: "e2e-test"
+      message: Integration should be set to constant e2e-test
+
+  - assert:
+      variable: mapping_result.target_raw.name
+      equals: "Test User"
+      message: Name should be directly mapped
+
+  - assert:
+      variable: mapping_result.target_raw.status
+      equals: "active"
+      message: Status should be directly mapped
 
   # Verify all services are healthy
   - http_request:

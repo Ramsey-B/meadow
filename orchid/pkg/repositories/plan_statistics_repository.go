@@ -312,3 +312,29 @@ func (r *PlanStatisticsRepository) IncrementAPICalls(ctx context.Context, planKe
 	}).Debugf("Incremented API calls for %s plan=%s config=%s count=%d", planStatisticsTable, planKey, configID, count)
 	return nil
 }
+
+// DeleteByTenantID deletes all statistics for a tenant (for testing cleanup)
+func (r *PlanStatisticsRepository) DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	ctx, span := tracing.StartSpan(ctx, "PlanStatisticsRepository.DeleteByTenantID")
+	defer span.End()
+
+	db := database.NewDeleteBuilder()
+	db.DeleteFrom(planStatisticsTable).
+		Where(db.Equal("tenant_id", tenantID))
+
+	query, args := db.Build()
+	result, err := r.DB().ExecContext(ctx, query, args...)
+	if err != nil {
+		r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+			"tenant_id": tenantID,
+		}).Error("failed to delete statistics by tenant")
+		return 0, err
+	}
+
+	rows, _ := result.RowsAffected()
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"tenant_id": tenantID,
+		"count":     rows,
+	}).Info("Deleted statistics by tenant")
+	return rows, nil
+}

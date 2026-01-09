@@ -20,19 +20,19 @@ import (
 // 2. If no more sources remain in the cluster, soft-deletes the merged entity/relationship
 type DeletionProcessor struct {
 	logger           ectologger.Logger
-	stagedEntityRepo *stagedentity.Repository
-	stagedRelRepo    *stagedrelationship.Repository
-	mergedEntityRepo *mergedentity.Repository
-	mergedRelRepo    *mergedrelationship.Repository
+	stagedEntityRepo stagedentity.Repository
+	stagedRelRepo    stagedrelationship.Repository
+	mergedEntityRepo mergedentity.Repository
+	mergedRelRepo    mergedrelationship.Repository
 }
 
 // NewDeletionProcessor creates a new deletion processor
 func NewDeletionProcessor(
 	logger ectologger.Logger,
-	stagedEntityRepo *stagedentity.Repository,
-	stagedRelRepo *stagedrelationship.Repository,
-	mergedEntityRepo *mergedentity.Repository,
-	mergedRelRepo *mergedrelationship.Repository,
+	stagedEntityRepo stagedentity.Repository,
+	stagedRelRepo stagedrelationship.Repository,
+	mergedEntityRepo mergedentity.Repository,
+	mergedRelRepo mergedrelationship.Repository,
 ) *DeletionProcessor {
 	return &DeletionProcessor{
 		logger:           logger,

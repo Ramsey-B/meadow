@@ -22,18 +22,39 @@ steps:
       duration: 1s
       reason: Allow message to be committed
 
-  # Consume and verify a message (from earliest offset with new consumer group)
-  # This test verifies that Kafka pub/sub is working
+  # Consume and verify the message with COMPLETE data validation
+  # This test verifies that Kafka pub/sub is working correctly
   - assert_kafka_message:
       topic: meadow-test-pubsub
       timeout: 30s
       consume_from: earliest
       assertions:
+        # Verify message content
         - field: message
           equals: "Hello from meadow-test"
+        # Verify nested user data
         - field: data.user_id
           equals: "user-123"
         - field: data.name
           equals: "Test User"
+        - field: data.email
+          equals: "test@example.com"
+        # Verify test_id was set
+        - field: test_id
+          not_empty: true
+        # Verify timestamp was set
+        - field: timestamp
+          not_empty: true
       save_as: consumed_message
+
+  # Verify the consumed message was saved correctly
+  - assert:
+      variable: consumed_message.message
+      equals: "Hello from meadow-test"
+      message: Consumed message should match published message
+
+  - assert:
+      variable: consumed_message.data.email
+      equals: "test@example.com"
+      message: Nested data should be preserved through Kafka
 

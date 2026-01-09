@@ -35,13 +35,37 @@ steps:
         status: 201
       save_as: entity_type_response
 
-  # Verify the entity type was created
+  # Verify the entity type was created with correct data
   - assert:
       variable: entity_type_response.id
       not_empty: true
       message: Entity type ID should be returned
 
-  # List entity types
+  - assert:
+      variable: entity_type_response.name
+      equals: "Test Entity"
+      message: Entity type name should match
+
+  - assert:
+      variable: entity_type_response.description
+      equals: "Entity type created by meadow-test"
+      message: Entity type description should match
+
+  # Get entity type to verify it was persisted correctly
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type_response.id}}
+      expect:
+        status: 200
+      save_as: entity_type_get
+
+  - assert:
+      variable: entity_type_get.name
+      equals: "Test Entity"
+      message: Retrieved entity type name should match
+
+  # List entity types to verify it appears in the list
   - http_request:
       service: ivy
       method: GET
@@ -73,11 +97,45 @@ steps:
         status: 201
       save_as: match_rule_response
 
-  # Verify the match rule was created
+  # Verify the match rule was created with correct data
   - assert:
       variable: match_rule_response.id
       not_empty: true
       message: Match rule ID should be returned
+
+  - assert:
+      variable: match_rule_response.name
+      equals: "Test Email Match Rule"
+      message: Match rule name should match
+
+  - assert:
+      variable: match_rule_response.priority
+      equals: 100
+      message: Match rule priority should be 100
+
+  - assert:
+      variable: match_rule_response.is_active
+      equals: true
+      message: Match rule should be active
+
+  # Get match rule to verify persistence
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules/{{match_rule_response.id}}
+      expect:
+        status: 200
+      save_as: match_rule_get
+
+  - assert:
+      variable: match_rule_get.name
+      equals: "Test Email Match Rule"
+      message: Retrieved match rule name should match
+
+  - assert:
+      variable: match_rule_get.entity_type
+      equals: "{{entity_type_response.key}}"
+      message: Match rule should belong to correct entity type
 
   # List match rules for this entity type
   - http_request:
@@ -86,8 +144,9 @@ steps:
       path: /api/v1/match-rules?entity_type={{entity_type_response.key}}
       expect:
         status: 200
+      save_as: match_rules_list
 
-  # Validate some test data against the entity type schema
+  # Validate VALID test data against the entity type schema
   - http_request:
       service: ivy
       method: POST
@@ -100,6 +159,31 @@ steps:
           status: "active"
       expect:
         status: 200
+      save_as: validation_result
+
+  - assert:
+      variable: validation_result.valid
+      equals: true
+      message: Valid data should pass validation
+
+  # Validate INVALID test data (missing required email field)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/validate/validate
+      body:
+        entity_type: "{{entity_type_response.key}}"
+        data:
+          name: "Missing Email User"
+          status: "active"
+      expect:
+        status: 200
+      save_as: invalid_result
+
+  - assert:
+      variable: invalid_result.valid
+      equals: false
+      message: Data missing required email should fail validation
 
 cleanup:
   # Delete match rule first

@@ -1,7 +1,33 @@
 name: Orchid Kafka Integration
-description: Test that Orchid plan execution publishes data to Kafka
+description: |
+  Test that Orchid plan execution publishes data to Kafka.
+  1. Create integration + config
+  2. Create a plan that fetches /health endpoint
+  3. Trigger execution
+  4. Validate Kafka message was published with correct data
 
 steps:
+  # Generate unique mock path
+  - set_variable:
+      name: mock_path
+      value: "/mock/kafka-int-{{uuid}}"
+
+  # Configure unique mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            status: "healthy"
+            service: "kafka-integration-test"
+      expect:
+        status: 200
+
   # Create integration
   - http_request:
       service: orchid
@@ -23,6 +49,11 @@ steps:
         status: 201
       save_as: integration
 
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration should be created
+
   # Create config
   - http_request:
       service: orchid
@@ -32,67 +63,135 @@ steps:
         integration_id: "{{integration.id}}"
         name: "Kafka Test Config {{uuid}}"
         values:
-          base_url: "http://localhost:8090"
-        auth:
-          type: none
+          base_url: "{{mocks_url}}"
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Create a plan that will publish to Kafka
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config should be created
+
+  # Create a simple plan that hits /health
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "Kafka Publishing Plan {{uuid}}"
-        key: "kafka-plan-{{uuid}}"
-        description: "Plan that publishes extracted data to Kafka"
-        steps:
-          - id: fetch_users
-            type: request
+        key: "kafka-int-{{uuid}}"
+        name: "Kafka Integration Test Plan"
+        description: "Simple plan to verify Kafka publishing"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
             method: GET
-            path: /api/test/users
-            pagination:
-              type: none
-        output:
-          kafka:
-            enabled: true
-            topic: "orchid.test.{{timestamp}}"
+          max_execution_seconds: 30
       expect:
         status: 201
       save_as: plan
 
-  # Verify plan created
   - assert:
       variable: plan.key
       not_empty: true
-      message: Kafka publishing plan should be created
+      message: Plan should be created
 
-  # Get the plan to verify Kafka output configuration
+  # Record Kafka offset before triggering
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Execution should be queued
+
+  # Wait for execution
+  - wait:
+      duration: 3s
+      reason: Allow execution to complete and publish to Kafka
+
+  # Verify execution completed
   - http_request:
       service: orchid
       method: GET
-      path: /api/v1/plans/{{plan.key}}
+      path: /api/v1/executions?plan_key={{plan.key}}
       expect:
         status: 200
-      save_as: plan_details
+      save_as: executions
 
-  # Verify plan was retrieved
   - assert:
-      variable: plan_details.key
+      variable: executions
       not_empty: true
-      message: Plan should be retrievable
+      message: Should have at least one execution
+
+  # Validate Kafka message was published correctly
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        # Verify metadata
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: integration
+          contains: "Kafka Integration"
+        # Verify request
+        - field: request_url
+          contains: "/mock/kafka-int-"
+        - field: request_method
+          equals: GET
+        - field: status_code
+          equals: 200
+        # Verify /health response data
+        - field: response_body[0].status
+          equals: "healthy"
+      save_as: kafka_message
+
+  # Verify the saved Kafka message
+  - assert:
+      variable: kafka_message.plan_key
+      equals: "{{plan.key}}"
+      message: Saved Kafka message should have correct plan_key
 
 cleanup:
-  # Clean up plan
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
   - http_request:
       service: orchid
       method: DELETE
       path: /api/v1/plans/{{plan.key}}
 
-  # Clean up config and integration
   - http_request:
       service: orchid
       method: DELETE

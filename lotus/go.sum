@@ -6,8 +6,7 @@ github.com/Gobusters/ectoenv v1.2.0 h1:i03SO3d1eSG8kzxwTf1qjXv2J4t23yL7v1Hbkz4qb
 github.com/Gobusters/ectoenv v1.2.0/go.mod h1:91Z5BdFAriWrww5XY4VOwPDh+nik+2ZQgxJSYXwf8EI=
 github.com/Gobusters/ectoerror v1.0.0 h1:Z+ntrxI3hxA75+tTmpxiLT5ocbQjZKNP7s3ISrcAgUE=
 github.com/Gobusters/ectoerror v1.0.0/go.mod h1:aBwR73TuWH7yV4JGv8QnZGjRGWm4r8JG9/6F/kqj5UI=
-github.com/Gobusters/ectoinject v1.1.0 h1:DeylNViyK9cpQlCLkPxPzniJMriis4oXNWZ7flireDY=
-github.com/Gobusters/ectoinject v1.1.0/go.mod h1:GhPpCnYSWKigs1yxRSlWLlPG9AJIEIN37jc5BGfZZew=
+github.com/Gobusters/ectoinject v1.1.2 h1:lDLU+ZZ+Kq8Og3H4pZ4uLZR+OPxDqD0DzriCNX+3RVI=
 github.com/Gobusters/ectolinq v1.0.3 h1:Uw3S/WEGLfHdVShgQAB/OL5yLSTduB2gHX8z9/4CyLw=
 github.com/Gobusters/ectolinq v1.0.3/go.mod h1:lVVb5c6Kx/rKfuoG4+KPy+xr9Y2xQRZ2GyTd35FJVx0=
 github.com/Gobusters/ectologger v0.0.1 h1:Iho4bNXiPtzqY7N2/WZFOzBA9Ls4l0x8F6c0LSI6Uxo=

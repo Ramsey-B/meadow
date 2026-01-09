@@ -19,8 +19,9 @@ help:
 	@echo "  make build         - Build all projects"
 	@echo "  make test          - Run all tests"
 	@echo "  make test-e2e      - Run E2E tests (requires services)"
-	@echo "  make test-meadow   - Run meadow-test YAML tests"
-	@echo "  make test-meadow-v - Run meadow-test with verbose output"
+	@echo "  make test-meadow   - Run meadow-test YAML tests (show failures only)"
+	@echo "  make test-meadow-v - Run meadow-test with full verbose output"
+	@echo "  make test-meadow-quiet - Run meadow-test with minimal output"
 	@echo "  make clean         - Clean build artifacts"
 	@echo ""
 	@echo "Dependencies:"
@@ -117,7 +118,7 @@ test-v:
 
 test-orchid:
 	@echo "Running Orchid tests..."
-	go test -v ./orchid/...
+	go test -v -parallel 8 ./orchid/...
 
 test-lotus:
 	@echo "Running Lotus tests..."
@@ -151,10 +152,19 @@ test-meadow:
 		echo "Building meadow-test first..."; \
 		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
 	fi
+	cd meadow-test && ./meadow-test run --show-failures -p 4 tests/
+
+test-meadow-quiet:
+	@echo "Running meadow-test YAML tests (quiet mode)..."
+	@echo "NOTE: Requires services running. Start with: make infra && make dev-mocks"
+	@if [ ! -f meadow-test/meadow-test ]; then \
+		echo "Building meadow-test first..."; \
+		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
+	fi
 	cd meadow-test && ./meadow-test run tests/
 
 test-meadow-v:
-	@echo "Running meadow-test YAML tests (verbose)..."
+	@echo "Running meadow-test YAML tests (full verbose)..."
 	@echo "NOTE: Requires services running. Start with: make infra && make dev-mocks"
 	@if [ ! -f meadow-test/meadow-test ]; then \
 		echo "Building meadow-test first..."; \

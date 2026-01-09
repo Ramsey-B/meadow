@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/Gobusters/ectoenv v1.2.0
 	github.com/Gobusters/ectoerror v1.0.0
-	github.com/Gobusters/ectoinject v1.1.0
+	github.com/Gobusters/ectoinject v1.1.2
 	github.com/Gobusters/ectologger v0.0.1
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/golang-migrate/migrate/v4 v4.18.2

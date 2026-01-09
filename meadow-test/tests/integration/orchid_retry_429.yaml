@@ -1,0 +1,190 @@
+name: Orchid Retry on 429 Rate Limit
+description: |
+  Test that Orchid retries requests when receiving 429 (Too Many Requests).
+  The mock API is configured to return 429 with Retry-After header,
+  and Orchid should respect it and retry successfully.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/rate-limited-{{uuid}}"
+
+  # Configure a mock endpoint that returns 429 with Retry-After
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 429
+          headers:
+            Retry-After: "1"
+            X-RateLimit-Reset: "1"
+          body:
+            error: "rate_limit_exceeded"
+            message: "Too many requests, please retry after 1 second"
+            retry_after: 1
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Retry 429 Test {{uuid}}"
+        description: "Test retry behavior on rate limits"
+        config_schema:
+          name: "Retry Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Retry 429 Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan that hits the rate-limited endpoint
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "retry-429-{{uuid}}"
+        name: "Retry on 429 Plan"
+        description: "Plan that should retry on 429"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            # Configure retry behavior for rate limits
+            retry_on: [429]
+            max_retries: 3
+            retry_delay_ms: 1000
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Record Kafka offset for response topic (to debug what we get)
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Execution should be queued
+
+  # Wait for execution and retry attempts
+  - wait:
+      duration: 5s
+      reason: Allow time for retry attempts
+
+  # Check execution status
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have execution record
+
+  # Verify the 429 response was captured with rate limit info
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: status_code
+          equals: 429
+        - field: request_url
+          contains: "/mock/rate-limited-"
+        - field: request_method
+          equals: GET
+        - field: response_headers.Retry-After
+          equals: "1"
+        - field: response_body[0].error
+          equals: "rate_limit_exceeded"
+        - field: response_body[0].message
+          equals: "Too many requests, please retry after 1 second"
+        - field: response_body[0].retry_after
+          equals: 1
+      save_as: rate_limit_response
+
+cleanup:
+  # Delete specific mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

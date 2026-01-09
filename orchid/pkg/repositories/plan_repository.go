@@ -330,3 +330,29 @@ func (r *PlanRepository) Delete(ctx context.Context, key string) error {
 	}).Debugf("Deleted %s", plansTable)
 	return nil
 }
+
+// DeleteByTenantID deletes all plans for a tenant (for testing cleanup)
+func (r *PlanRepository) DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	ctx, span := tracing.StartSpan(ctx, "PlanRepository.DeleteByTenantID")
+	defer span.End()
+
+	db := database.NewDeleteBuilder()
+	db.DeleteFrom(plansTable).
+		Where(db.Equal("tenant_id", tenantID))
+
+	query, args := db.Build()
+	result, err := r.DB().ExecContext(ctx, query, args...)
+	if err != nil {
+		r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+			"tenant_id": tenantID,
+		}).Error("failed to delete plans by tenant")
+		return 0, err
+	}
+
+	rows, _ := result.RowsAffected()
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"tenant_id": tenantID,
+		"count":     rows,
+	}).Info("Deleted plans by tenant")
+	return rows, nil
+}

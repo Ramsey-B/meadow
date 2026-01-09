@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -100,14 +101,14 @@ func Assert(ctx TestContext, params interface{}) error {
 
 		if equals, ok := paramsMap["equals"]; ok {
 			expectedVal := ctx.Interpolate(equals)
-			if !reflect.DeepEqual(val, expectedVal) {
+			if !compareValuesForAssert(val, expectedVal) {
 				return fmt.Errorf("%s: %s = %v, expected %v", message, variable, val, expectedVal)
 			}
 		}
 
 		if notEquals, ok := paramsMap["not_equals"]; ok {
 			unexpectedVal := ctx.Interpolate(notEquals)
-			if reflect.DeepEqual(val, unexpectedVal) {
+			if compareValuesForAssert(val, unexpectedVal) {
 				return fmt.Errorf("%s: %s = %v, expected not equal to %v", message, variable, val, unexpectedVal)
 			}
 		}
@@ -133,17 +134,48 @@ func Assert(ctx TestContext, params interface{}) error {
 	return fmt.Errorf("assert requires either 'condition' or 'variable' parameter")
 }
 
-// resolveNestedVariable resolves a variable path like "response.id" or "response.data.name"
+// resolveNestedVariable resolves a variable path like "response.id", "response.data.name", or "executions[0].status"
 func resolveNestedVariable(ctx TestContext, path string) interface{} {
 	parts := strings.Split(path, ".")
 	if len(parts) == 0 {
 		return nil
 	}
 
-	// Get the root variable
-	val, found := ctx.Get(parts[0])
-	if !found {
-		return nil
+	// Check if root has array index (e.g., "executions[0]")
+	rootPart := parts[0]
+	var val interface{}
+	var found bool
+
+	if strings.Contains(rootPart, "[") && strings.HasSuffix(rootPart, "]") {
+		// Parse root variable and array index
+		bracketIdx := strings.Index(rootPart, "[")
+		rootVar := rootPart[:bracketIdx]
+		indexStr := rootPart[bracketIdx+1 : len(rootPart)-1]
+		index, err := strconv.Atoi(indexStr)
+		if err != nil {
+			return nil
+		}
+
+		val, found = ctx.Get(rootVar)
+		if !found {
+			return nil
+		}
+
+		// Access array element
+		if arr, ok := val.([]interface{}); ok {
+			if index >= 0 && index < len(arr) {
+				val = arr[index]
+			} else {
+				return nil
+			}
+		} else {
+			return nil
+		}
+	} else {
+		val, found = ctx.Get(parts[0])
+		if !found {
+			return nil
+		}
 	}
 
 	// Navigate nested paths
@@ -152,16 +184,93 @@ func resolveNestedVariable(ctx TestContext, path string) interface{} {
 			return nil
 		}
 
-		switch v := val.(type) {
-		case map[string]interface{}:
-			val = v[parts[i]]
-		default:
-			// Can't navigate further
-			return nil
+		part := parts[i]
+
+		// Check for array index in path part (e.g., "items[0]")
+		if strings.Contains(part, "[") && strings.HasSuffix(part, "]") {
+			bracketIdx := strings.Index(part, "[")
+			fieldName := part[:bracketIdx]
+			indexStr := part[bracketIdx+1 : len(part)-1]
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				return nil
+			}
+
+			// First get the field
+			switch v := val.(type) {
+			case map[string]interface{}:
+				val = v[fieldName]
+			default:
+				return nil
+			}
+
+			// Then access array element
+			if arr, ok := val.([]interface{}); ok {
+				if index >= 0 && index < len(arr) {
+					val = arr[index]
+				} else {
+					return nil
+				}
+			} else {
+				return nil
+			}
+		} else {
+			switch v := val.(type) {
+			case map[string]interface{}:
+				val = v[part]
+			default:
+				// Can't navigate further
+				return nil
+			}
 		}
 	}
 
 	return val
+}
+
+// compareValuesForAssert compares two values, handling numeric type differences
+// (YAML parses numbers as int, JSON as float64)
+func compareValuesForAssert(actual, expected interface{}) bool {
+	// Try numeric comparison first
+	actualNum, actualIsNum := toFloat64Assert(actual)
+	expectedNum, expectedIsNum := toFloat64Assert(expected)
+
+	if actualIsNum && expectedIsNum {
+		return actualNum == expectedNum
+	}
+
+	// Try boolean comparison
+	if actualBool, ok := actual.(bool); ok {
+		if expectedBool, ok := expected.(bool); ok {
+			return actualBool == expectedBool
+		}
+	}
+
+	// Fall back to string comparison for mixed types
+	if actualIsNum != expectedIsNum {
+		return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
+	}
+
+	// Use reflect.DeepEqual for non-numeric types
+	return reflect.DeepEqual(actual, expected)
+}
+
+// toFloat64Assert converts numeric types to float64 for comparison
+func toFloat64Assert(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 // HTTPRequest implements the http_request step

@@ -15,6 +15,7 @@ type IntegrationRepo interface {
 	List(ctx context.Context) ([]models.Integration, error)
 	Update(ctx context.Context, integration *models.Integration) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }
 
 // ConfigRepo defines the interface for config repository operations
@@ -26,6 +27,7 @@ type ConfigRepo interface {
 	Update(ctx context.Context, config *models.Config) error
 	SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }
 
 // AuthFlowRepo defines the interface for auth flow repository operations
@@ -35,6 +37,7 @@ type AuthFlowRepo interface {
 	ListByIntegration(ctx context.Context, integrationID uuid.UUID) ([]models.AuthFlow, error)
 	Update(ctx context.Context, authFlow *models.AuthFlow) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }
 
 // PlanRepo defines the interface for plan repository operations
@@ -46,6 +49,7 @@ type PlanRepo interface {
 	Update(ctx context.Context, plan *models.Plan) error
 	SetEnabled(ctx context.Context, key string, enabled bool) error
 	Delete(ctx context.Context, key string) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }
 
 // PlanExecutionRepo defines the interface for plan execution repository operations
@@ -60,6 +64,7 @@ type PlanExecutionRepo interface {
 	MarkCompleted(ctx context.Context, id uuid.UUID, status models.ExecutionStatus, errorMsg *string, errorType *models.ErrorType) error
 	IncrementRetry(ctx context.Context, id uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }
 
 // PlanContextRepo defines the interface for plan context repository operations
@@ -78,4 +83,5 @@ type PlanStatisticsRepo interface {
 	IncrementAPICalls(ctx context.Context, planKey string, configID uuid.UUID, count int) error
 	ListByPlan(ctx context.Context, planKey string) ([]models.PlanStatistics, error)
 	Delete(ctx context.Context, planKey string, configID uuid.UUID) error
+	DeleteByTenantID(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }

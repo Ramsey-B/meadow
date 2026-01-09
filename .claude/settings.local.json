@@ -19,7 +19,10 @@
       "Bash(meadow-test/meadow-test run:*)",
       "Bash(python3:*)",
       "Bash(meadow-test run:*)",
-      "Bash(./meadow-test/meadow-test run:*)"
+      "Bash(./meadow-test/meadow-test run:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(make dev-ivy:*)",
+      "Bash(timeout 10 make:*)"
     ]
   }
 }

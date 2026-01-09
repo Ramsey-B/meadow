@@ -2,6 +2,27 @@ name: Orchid No Authentication
 description: Test plan execution with no authentication (public API)
 
 steps:
+  # Generate unique mock path
+  - set_variable:
+      name: mock_path
+      value: "/mock/public-{{uuid}}"
+
+  # Configure unique mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            status: "healthy"
+            service: "public-api"
+      expect:
+        status: 200
+
   # Create integration
   - http_request:
       service: orchid
@@ -59,7 +80,7 @@ steps:
           - id: fetch_health
             type: request
             method: GET
-            path: /health
+            path: "{{mock_path}}"
             pagination:
               type: none
       expect:
@@ -73,6 +94,15 @@ steps:
       message: Plan should be created
 
 cleanup:
+  # Clean up mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
   # Clean up resources
   - http_request:
       service: orchid

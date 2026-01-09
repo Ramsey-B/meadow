@@ -277,6 +277,7 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 	var filterHeader, filterEquals string
 	var filterField string
 	var filterHasField string
+	var filterFieldContains, filterContainsValue string
 	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
 		if h, ok := filter["header"].(string); ok {
 			filterHeader = h
@@ -289,6 +290,12 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 		}
 		if hf, ok := filter["has_field"].(string); ok {
 			filterHasField = hf
+		}
+		if fc, ok := filter["field_contains"].(string); ok {
+			filterFieldContains = fc
+		}
+		if cv, ok := filter["contains_value"].(string); ok {
+			filterContainsValue = ctx.Interpolate(cv).(string)
 		}
 	}
 
@@ -350,6 +357,16 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 			}
 		}
 
+		// Check field_contains filter (field must contain substring)
+		if filterFieldContains != "" && filterContainsValue != "" {
+			fieldValue, _ := getNestedField(messageValue, filterFieldContains)
+			fieldStr := fmt.Sprintf("%v", fieldValue)
+			if !strings.Contains(fieldStr, filterContainsValue) {
+				ctx.Log("Skipping message %d: field %s=%v (should contain %s)", msg.Offset, filterFieldContains, fieldStr, filterContainsValue)
+				continue
+			}
+		}
+
 		// Message matches filter (or no filter specified)
 		break
 	}
@@ -385,6 +402,7 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 	var filterHeader, filterEquals string
 	var filterField string
 	var filterHasField string
+	var filterFieldContains, filterContainsValue string
 	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
 		if h, ok := filter["header"].(string); ok {
 			filterHeader = h
@@ -397,6 +415,12 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 		}
 		if hf, ok := filter["has_field"].(string); ok {
 			filterHasField = hf
+		}
+		if fc, ok := filter["field_contains"].(string); ok {
+			filterFieldContains = fc
+		}
+		if cv, ok := filter["contains_value"].(string); ok {
+			filterContainsValue = ctx.Interpolate(cv).(string)
 		}
 	}
 
@@ -464,6 +488,16 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 		if filterHasField != "" {
 			if _, ok := messageValue[filterHasField]; !ok {
 				ctx.Log("Skipping message %d: missing required field %s", m.Offset, filterHasField)
+				continue
+			}
+		}
+
+		// Check field_contains filter (field must contain substring)
+		if filterFieldContains != "" && filterContainsValue != "" {
+			fieldValue, _ := getNestedField(messageValue, filterFieldContains)
+			fieldStr := fmt.Sprintf("%v", fieldValue)
+			if !strings.Contains(fieldStr, filterContainsValue) {
+				ctx.Log("Skipping message %d: field %s=%v (should contain %s)", m.Offset, filterFieldContains, fieldStr, filterContainsValue)
 				continue
 			}
 		}
@@ -854,6 +888,7 @@ func CountKafkaMessages(ctx TestContext, params interface{}) error {
 	// Parse filter criteria
 	var filterHeader, filterEquals string
 	var filterHasField string
+	var filterFieldContains, filterContainsValue string
 	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
 		if h, ok := filter["header"].(string); ok {
 			filterHeader = h
@@ -863,6 +898,12 @@ func CountKafkaMessages(ctx TestContext, params interface{}) error {
 		}
 		if hf, ok := filter["has_field"].(string); ok {
 			filterHasField = hf
+		}
+		if fc, ok := filter["field_contains"].(string); ok {
+			filterFieldContains = fc
+		}
+		if cv, ok := filter["contains_value"].(string); ok {
+			filterContainsValue = ctx.Interpolate(cv).(string)
 		}
 	}
 
@@ -908,6 +949,15 @@ func CountKafkaMessages(ctx TestContext, params interface{}) error {
 			}
 		}
 
+		// Check field_contains filter
+		if filterFieldContains != "" && filterContainsValue != "" {
+			fieldValue, _ := getNestedField(messageValue, filterFieldContains)
+			fieldStr := fmt.Sprintf("%v", fieldValue)
+			if !strings.Contains(fieldStr, filterContainsValue) {
+				continue
+			}
+		}
+
 		// Message matches!
 		matchingMessages = append(matchingMessages, messageValue)
 		ctx.Log("Found matching message %d (offset: %d)", len(matchingMessages), msg.Offset)
@@ -940,6 +990,13 @@ func CountKafkaMessages(ctx TestContext, params interface{}) error {
 				}
 				if filterHasField != "" {
 					if _, ok := mv[filterHasField]; !ok {
+						continue
+					}
+				}
+				if filterFieldContains != "" && filterContainsValue != "" {
+					fieldValue, _ := getNestedField(mv, filterFieldContains)
+					fieldStr := fmt.Sprintf("%v", fieldValue)
+					if !strings.Contains(fieldStr, filterContainsValue) {
 						continue
 					}
 				}

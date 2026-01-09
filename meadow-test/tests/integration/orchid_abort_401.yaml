@@ -1,0 +1,153 @@
+name: Orchid Abort on 401 Unauthorized
+description: |
+  Test that Orchid aborts execution when receiving 401 Unauthorized.
+  This tests the abort_on configuration for authentication failures.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/protected-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 401
+          headers:
+            WWW-Authenticate: "Bearer realm=\"api\""
+          body:
+            error: "unauthorized"
+            message: "Invalid or expired authentication token"
+            code: "AUTH_INVALID_TOKEN"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Abort 401 Test {{uuid}}"
+        description: "Test abort behavior on unauthorized"
+        config_schema:
+          name: "Abort 401 Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Abort 401 Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan that should abort on 401
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "abort-401-{{uuid}}"
+        name: "Abort on 401 Plan"
+        description: "Plan that should abort on unauthorized"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            # Auth errors should abort immediately
+            abort_on: [401]
+            ignore_on: [404]
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - wait:
+      duration: 3s
+      reason: Allow execution to complete
+
+  # Check execution status
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have execution record
+
+  # Verify execution was aborted
+  - assert:
+      variable: executions[0].status
+      equals: "aborted"
+      message: Execution should be aborted on 401
+
+  - assert:
+      variable: executions[0].error_message
+      contains: "abort"
+      message: Error message should indicate abort
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

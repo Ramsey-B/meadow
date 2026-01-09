@@ -1,0 +1,161 @@
+name: Orchid Retry on 5xx Server Errors
+description: |
+  Test that Orchid retries requests when receiving 5xx server errors (500, 502, 503, 504).
+  These are typically transient errors that should be retried.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/server-error-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 503
+          headers:
+            X-Retry-After: "2"
+          body:
+            error: "service_unavailable"
+            message: "Service temporarily unavailable"
+            code: "SERVICE_UNAVAILABLE"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Retry 5xx Test {{uuid}}"
+        description: "Test retry behavior on server errors"
+        config_schema:
+          name: "Retry 5xx Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Retry 5xx Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan that hits the server error endpoint
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "retry-5xx-{{uuid}}"
+        name: "Retry on 5xx Plan"
+        description: "Plan that should retry on server errors"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            retry_on: [500, 502, 503, 504]
+            max_retries: 2
+            retry_delay_ms: 500
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Record Kafka offset
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - wait:
+      duration: 5s
+      reason: Allow time for retry attempts
+
+  # Verify 503 response was captured
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: status_code
+          equals: 503
+        - field: request_url
+          contains: "/mock/server-error-"
+        - field: response_body[0].error
+          equals: "service_unavailable"
+        - field: response_body[0].message
+          equals: "Service temporarily unavailable"
+        - field: response_body[0].code
+          equals: "SERVICE_UNAVAILABLE"
+      save_as: server_error
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

@@ -1,0 +1,168 @@
+name: Orchid Respect Retry-After Header
+description: |
+  Test that Orchid properly respects the Retry-After header when rate limited.
+  The server responds with 429 and a Retry-After value.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/retry-after-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 429
+          headers:
+            Retry-After: "2"
+            X-RateLimit-Limit: "10"
+            X-RateLimit-Remaining: "0"
+            X-RateLimit-Reset: "2"
+          body:
+            error: "too_many_requests"
+            message: "Rate limit exceeded"
+            retry_after_seconds: 2
+            limit: 10
+            window: "1m"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Retry-After Test {{uuid}}"
+        description: "Test Retry-After header handling"
+        config_schema:
+          name: "Retry-After Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Retry-After Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan that should respect Retry-After
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "retry-after-{{uuid}}"
+        name: "Retry-After Plan"
+        description: "Plan that respects Retry-After header"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            retry_on: [429]
+            max_retries: 3
+            respect_retry_after: true
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Record Kafka offset (429 goes to api-responses)
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - wait:
+      duration: 8s
+      reason: Allow time for retry with Retry-After delay
+
+  # Verify 429 response was captured with Retry-After info
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: status_code
+          equals: 429
+        - field: request_url
+          contains: "/mock/retry-after"
+        - field: response_headers.Retry-After
+          equals: "2"
+        - field: response_body[0].error
+          equals: "too_many_requests"
+        - field: response_body[0].message
+          equals: "Rate limit exceeded"
+        - field: response_body[0].retry_after_seconds
+          equals: 2
+      save_as: retry_after_response
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

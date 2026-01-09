@@ -1,0 +1,167 @@
+name: Orchid Static Rate Limit
+description: |
+  Test Orchid's static rate limiting with a fixed requests per window configuration.
+  Validates that Orchid respects rate limits and doesn't exceed configured thresholds.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/rate-test-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          headers:
+            X-RateLimit-Limit: "10"
+            X-RateLimit-Remaining: "9"
+            X-RateLimit-Reset: "60"
+          body:
+            message: "Request successful"
+            request_count: 1
+      expect:
+        status: 200
+
+  # Create integration with rate limit settings
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Static Rate Limit Test {{uuid}}"
+        description: "Test static rate limiting"
+        config_schema:
+          name: "Rate Limit Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Static Rate Limit Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with static rate limit configuration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "static-rate-limit-{{uuid}}"
+        name: "Static Rate Limit Plan"
+        description: "Plan with static rate limit of 5 requests per 60 seconds"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            rate_limit:
+              requests_per_second: 5
+              burst_size: 10
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Record Kafka offset
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Execution should be queued
+
+  - wait:
+      duration: 5s
+      reason: Allow execution to complete
+
+  # Verify successful response in Kafka
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: tenant_id
+          equals: "{{test_tenant}}"
+        - field: status_code
+          equals: 200
+        - field: request_method
+          equals: GET
+        - field: response_headers.X-Ratelimit-Limit
+          equals: "10"
+        - field: response_headers.X-Ratelimit-Remaining
+          equals: "9"
+        - field: response_body[0].message
+          equals: "Request successful"
+      save_as: rate_limit_response
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

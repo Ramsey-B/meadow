@@ -64,19 +64,30 @@ steps:
         status: 202
       save_as: mapping_response
 
-  # Verify the mapping was created
+  # Verify the mapping was created with correct data
   - assert:
       variable: mapping_response.id
       not_empty: true
       message: Mapping ID should be returned
 
-  # Read the mapping back
+  - assert:
+      variable: mapping_response.description
+      equals: "Simple mapping for testing"
+      message: Mapping description should match
+
+  # Read the mapping back and validate its structure
   - http_request:
       service: lotus
       method: GET
       path: /api/v1/mappings/definitions/{{mapping_response.id}}
       expect:
         status: 200
+      save_as: mapping_get
+
+  - assert:
+      variable: mapping_get.description
+      equals: "Simple mapping for testing"
+      message: Retrieved mapping description should match
 
   # Create a binding for this mapping
   - http_request:
@@ -96,11 +107,40 @@ steps:
         status: 201
       save_as: binding_response
 
-  # Verify the binding was created
+  # Verify the binding was created with correct data
   - assert:
       variable: binding_response.id
       not_empty: true
       message: Binding ID should be returned
+
+  - assert:
+      variable: binding_response.mapping_id
+      equals: "{{mapping_response.id}}"
+      message: Binding should reference correct mapping
+
+  - assert:
+      variable: binding_response.is_enabled
+      equals: true
+      message: Binding should be enabled
+
+  - assert:
+      variable: binding_response.output_topic
+      equals: "test-mapped-data"
+      message: Binding output topic should match
+
+  # Get binding to verify persistence
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/bindings/{{binding_response.id}}
+      expect:
+        status: 200
+      save_as: binding_get
+
+  - assert:
+      variable: binding_get.is_enabled
+      equals: true
+      message: Retrieved binding should be enabled
 
   # List bindings
   - http_request:
@@ -125,6 +165,27 @@ steps:
       expect:
         status: 200
       save_as: execute_response
+
+  # Verify mapping execution produced correct output
+  - assert:
+      variable: execute_response.target_raw._source_id
+      equals: "user-123"
+      message: Source ID should be mapped
+
+  - assert:
+      variable: execute_response.target_raw._entity_type
+      equals: "user"
+      message: Entity type should be set to constant "user"
+
+  - assert:
+      variable: execute_response.target_raw.name
+      equals: "John Doe"
+      message: Name should be directly mapped
+
+  - assert:
+      variable: execute_response.target_raw.email
+      equals: "john.doe@example.com"
+      message: Email should be lowercased by transformer
 
 cleanup:
   # Delete the binding first

@@ -9,6 +9,29 @@ description: |
 
 steps:
   # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/simple-{{uuid}}"
+
+  # Configure unique mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            status: "healthy"
+            service: "simple-test"
+      expect:
+        status: 200
+
+  # ============================================================================
   # SETUP: Integration + Config
   # ============================================================================
   
@@ -72,7 +95,7 @@ steps:
         enabled: true
         plan_definition:
           step:
-            url: "{{ config.base_url }}/health"
+            url: "{{ config.base_url }}{{mock_path}}"
             method: GET
           max_execution_seconds: 30
       expect:
@@ -161,6 +184,8 @@ steps:
         equals: "{{plan.key}}"
         # Only match API response messages (have request_url), not execution events
         has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
       assertions:
         # === Metadata validation ===
         - field: tenant_id
@@ -176,7 +201,7 @@ steps:
 
         # === Request validation ===
         - field: request_url
-          contains: "/health"
+          contains: "/mock/simple-"
         - field: request_method
           equals: GET
 
@@ -195,6 +220,14 @@ steps:
       save_as: kafka_message
 
 cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
   - http_request:
       service: orchid
       method: DELETE

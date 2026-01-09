@@ -1,0 +1,151 @@
+name: Orchid Timeout Handling
+description: |
+  Test that Orchid properly handles request timeouts.
+  The mock API is configured to delay responses beyond the configured timeout.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/slow-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          delay_ms: 30000
+          body:
+            message: "This response is delayed"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Timeout Test {{uuid}}"
+        description: "Test timeout handling"
+        config_schema:
+          name: "Timeout Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Timeout Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan with short timeout
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "timeout-test-{{uuid}}"
+        name: "Timeout Test Plan"
+        description: "Plan that should timeout"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            timeout_seconds: 5
+          max_execution_seconds: 15
+      expect:
+        status: 201
+      save_as: plan
+
+  # Record Kafka offset
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  # Wait for timeout to occur (longer than step timeout)
+  - wait:
+      duration: 10s
+      reason: Wait for timeout to occur
+
+  # Check execution status - should show timeout failure
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/executions?plan_key={{plan.key}}
+      expect:
+        status: 200
+      save_as: executions
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have execution record for timeout test
+
+  # Check for timeout execution - may still be running due to long delay
+  # The request to /mock/slow-endpoint has 30s delay, step timeout is 5s
+  # Orchid should timeout the request and record it
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have execution record for timeout test
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

@@ -39,11 +39,21 @@ steps:
         status: 201
       save_as: entity_type
 
-  # Verify entity type was created
+  # Verify entity type was created with correct data
   - assert:
       variable: entity_type.id
       not_empty: true
       message: Entity type should be created
+
+  - assert:
+      variable: entity_type.name
+      equals: "Validated Entity"
+      message: Entity type name should match
+
+  - assert:
+      variable: entity_type.description
+      equals: "Entity type with strict validation"
+      message: Entity type description should match
 
   # Test validation with VALID data (all required fields present)
   - http_request:
@@ -63,8 +73,8 @@ steps:
 
   # Verify valid data passed
   - assert:
-      variable: valid_result
-      not_empty: true
+      variable: valid_result.valid
+      equals: true
       message: Valid data should pass validation
 
   # Test validation with INVALID email format (returns 200 with valid:false)
@@ -125,6 +135,12 @@ steps:
         status: 200
       save_as: extra_fields_result
 
+  # Extra fields should be allowed (additionalProperties: true by default)
+  - assert:
+      variable: extra_fields_result.valid
+      equals: true
+      message: Extra fields should be allowed
+
   # Test validation with NULL optional field (should be valid)
   - http_request:
       service: ivy
@@ -140,6 +156,12 @@ steps:
       expect:
         status: 200
       save_as: null_optional_result
+
+  # Null optional fields should be valid
+  - assert:
+      variable: null_optional_result.valid
+      equals: true
+      message: Null optional fields should be valid
 
   # Test validation with EMPTY string for required field
   - http_request:
@@ -175,6 +197,12 @@ steps:
       expect:
         status: 200
       save_as: valid_enum_result
+
+  # Valid enum value should pass
+  - assert:
+      variable: valid_enum_result.valid
+      equals: true
+      message: Valid enum value should pass validation
 
 cleanup:
   # Delete entity type
