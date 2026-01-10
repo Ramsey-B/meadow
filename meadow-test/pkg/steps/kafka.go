@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+
+	bgkafka "github.com/Ramsey-B/meadow-test/pkg/kafka"
 )
 
 // GetKafkaOffset gets the current latest offset for a topic (use before triggering to avoid reading old messages)
@@ -59,6 +61,14 @@ func GetKafkaOffset(ctx TestContext, params interface{}) error {
 
 	ctx.Log("Got current offset for topic %s: %d", topic, offset)
 	ctx.Set(saveAs, offset)
+
+	// Start background consumer from this offset
+	// This starts consuming messages in the background so they're available
+	// when assert_kafka_message is called later
+	if err := ctx.StartKafkaConsumer(topic, offset); err != nil {
+		return fmt.Errorf("failed to start background Kafka consumer: %w", err)
+	}
+
 	return nil
 }
 
@@ -278,6 +288,8 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 	var filterField string
 	var filterHasField string
 	var filterFieldContains, filterContainsValue string
+	headerFilters := make(map[string]string) // Support multiple header filters
+
 	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
 		if h, ok := filter["header"].(string); ok {
 			filterHeader = h
@@ -297,6 +309,27 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 		if cv, ok := filter["contains_value"].(string); ok {
 			filterContainsValue = ctx.Interpolate(cv).(string)
 		}
+
+		// Support "headers" for multiple header filters (better test isolation)
+		if headers, ok := filter["headers"].(map[string]interface{}); ok {
+			for key, val := range headers {
+				if str, ok := val.(string); ok {
+					headerFilters[key] = ctx.Interpolate(str).(string)
+				}
+			}
+		}
+	}
+
+	// ALWAYS filter by tenant_id for test isolation in parallel execution
+	testTenant := ctx.Interpolate("{{test_tenant}}").(string)
+	if testTenant != "" {
+		headerFilters["tenant_id"] = testTenant
+		ctx.Log("Auto-filtering by tenant_id=%s for test isolation", testTenant)
+	}
+
+	// Add legacy single header filter to headerFilters map
+	if filterHeader != "" && filterEquals != "" {
+		headerFilters[filterHeader] = filterEquals
 	}
 
 	// Read messages with timeout, filtering for matching message
@@ -326,17 +359,28 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 			}
 		}
 
-		// Check if message matches filter
-		if filterHeader != "" && filterEquals != "" {
-			var headerValue string
+		// Check ALL header filters (includes tenant_id for isolation)
+		if len(headerFilters) > 0 {
+			// Build map of message headers for quick lookup
+			msgHeaders := make(map[string]string)
 			for _, h := range msg.Headers {
-				if h.Key == filterHeader {
-					headerValue = string(h.Value)
+				msgHeaders[h.Key] = string(h.Value)
+			}
+
+			// Check all required header filters
+			allHeadersMatch := true
+			for filterKey, filterValue := range headerFilters {
+				msgValue, found := msgHeaders[filterKey]
+				if !found || msgValue != filterValue {
+					if messagesRead <= 5 || messagesRead%50 == 1 {
+						ctx.Log("Skipping message %d: header %s=%s (want %s)", msg.Offset, filterKey, msgValue, filterValue)
+					}
+					allHeadersMatch = false
 					break
 				}
 			}
-			if headerValue != filterEquals {
-				ctx.Log("Skipping message %d: header %s=%s (want %s)", msg.Offset, filterHeader, headerValue, filterEquals)
+
+			if !allHeadersMatch {
 				continue
 			}
 		}
@@ -396,13 +440,27 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 	return nil
 }
 
-// assertKafkaMessageFromOffset reads messages starting from a specific offset (more efficient for tests)
+// assertKafkaMessageFromOffset queries the background consumer for messages matching the filters
 func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interface{}, brokers []string, topic string, startOffset int64, timeout time.Duration) error {
+	// Get the background consumer
+	consumerIface := ctx.GetKafkaConsumer()
+	if consumerIface == nil {
+		return fmt.Errorf("background Kafka consumer not started - call get_kafka_offset first")
+	}
+
+	// Type assert to the concrete consumer type
+	consumer, ok := consumerIface.(*bgkafka.BackgroundConsumer)
+	if !ok {
+		return fmt.Errorf("invalid Kafka consumer type")
+	}
+
 	// Parse filter criteria
 	var filterHeader, filterEquals string
 	var filterField string
 	var filterHasField string
 	var filterFieldContains, filterContainsValue string
+	headerFilters := make(map[string]string) // Support multiple header filters
+
 	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
 		if h, ok := filter["header"].(string); ok {
 			filterHeader = h
@@ -422,95 +480,80 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 		if cv, ok := filter["contains_value"].(string); ok {
 			filterContainsValue = ctx.Interpolate(cv).(string)
 		}
+
+		// Support "headers" for multiple header filters (better test isolation)
+		if headers, ok := filter["headers"].(map[string]interface{}); ok {
+			for key, val := range headers {
+				headerFilters[key] = ctx.Interpolate(val).(string)
+			}
+		}
 	}
 
-	// Use kafka.Reader with explicit partition and offset
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   brokers,
-		Topic:     topic,
-		Partition: 0,
-		MinBytes:  1,
-		MaxBytes:  10e6,
-	})
-	defer reader.Close()
+	// ALWAYS filter by tenant_id for test isolation in parallel execution
+	// This ensures tests don't read each other's messages
+	testTenant := ctx.Interpolate("{{test_tenant}}").(string)
+	if testTenant != "" {
+		headerFilters["tenant_id"] = testTenant
+		ctx.Log("Auto-filtering by tenant_id=%s for test isolation", testTenant)
+	} else {
+		ctx.Log("WARNING: test_tenant is empty, tenant_id filtering disabled!")
+	}
 
-	// Set the offset to start reading from
-	reader.SetOffset(startOffset)
+	// Add legacy single header filter to headerFilters map
+	if filterHeader != "" && filterEquals != "" {
+		headerFilters[filterHeader] = filterEquals
+	}
 
-	// Read messages with timeout
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	// Wait for a message matching the header filters from the background consumer
+	ctx.Log("Waiting for Kafka message with filters: %v, required_field: %s (timeout: %s)", headerFilters, filterHasField, timeout)
+	msg, err := consumer.WaitForMessage(headerFilters, filterHasField, timeout)
+	if err != nil {
+		return fmt.Errorf("failed to find matching message: %w", err)
+	}
 
-	var msg kafka.Message
-	var messageValue map[string]interface{}
-	messagesRead := 0
+	ctx.Log("Found message at offset %d matching ALL headers", msg.Offset)
+	messageValue := msg.Body
 
-	for {
-		m, err := reader.ReadMessage(timeoutCtx)
-		if err != nil {
-			if messagesRead == 0 {
-				return fmt.Errorf("no messages found starting from offset %d within timeout: %w", startOffset, err)
-			}
-			return fmt.Errorf("no matching message found after reading %d messages from offset %d: %w", messagesRead, startOffset, err)
+	// Additional field filters (if any) - these are applied in-memory after header matching
+	if filterField != "" && filterEquals != "" {
+		fieldValue, _ := getNestedField(messageValue, filterField)
+		if fmt.Sprintf("%v", fieldValue) != filterEquals {
+			return fmt.Errorf("field %s: expected %s, got %v", filterField, filterEquals, fieldValue)
 		}
-		messagesRead++
+	}
 
-		// Parse message
-		if parseErr := json.Unmarshal(m.Value, &messageValue); parseErr != nil {
-			ctx.Log("Skipping message %d: failed to parse JSON", m.Offset)
-			continue
+	// Check has_field filter (message must have this field)
+	if filterHasField != "" {
+		if _, ok := messageValue[filterHasField]; !ok {
+			return fmt.Errorf("message missing required field %s", filterHasField)
 		}
+	}
 
-		// Check filter
-		if filterHeader != "" && filterEquals != "" {
-			var headerValue string
-			for _, h := range m.Headers {
-				if h.Key == filterHeader {
-					headerValue = string(h.Value)
-					break
-				}
-			}
-			if headerValue != filterEquals {
-				ctx.Log("Skipping message %d: header %s=%s (want %s)", m.Offset, filterHeader, headerValue, filterEquals)
-				continue
-			}
+	// Check field_contains filter (field must contain substring)
+	if filterFieldContains != "" && filterContainsValue != "" {
+		fieldValue, _ := getNestedField(messageValue, filterFieldContains)
+		fieldStr := fmt.Sprintf("%v", fieldValue)
+		if !strings.Contains(fieldStr, filterContainsValue) {
+			return fmt.Errorf("field %s: %v does not contain %s", filterFieldContains, fieldStr, filterContainsValue)
 		}
-
-		if filterField != "" && filterEquals != "" {
-			fieldValue, _ := getNestedField(messageValue, filterField)
-			if fmt.Sprintf("%v", fieldValue) != filterEquals {
-				ctx.Log("Skipping message %d: field %s=%v (want %s)", m.Offset, filterField, fieldValue, filterEquals)
-				continue
-			}
-		}
-
-		// Check has_field filter (message must have this field)
-		if filterHasField != "" {
-			if _, ok := messageValue[filterHasField]; !ok {
-				ctx.Log("Skipping message %d: missing required field %s", m.Offset, filterHasField)
-				continue
-			}
-		}
-
-		// Check field_contains filter (field must contain substring)
-		if filterFieldContains != "" && filterContainsValue != "" {
-			fieldValue, _ := getNestedField(messageValue, filterFieldContains)
-			fieldStr := fmt.Sprintf("%v", fieldValue)
-			if !strings.Contains(fieldStr, filterContainsValue) {
-				ctx.Log("Skipping message %d: field %s=%v (should contain %s)", m.Offset, filterFieldContains, fieldStr, filterContainsValue)
-				continue
-			}
-		}
-
-		// Found matching message!
-		msg = m
-		ctx.Log("Found matching message at offset %d (read %d messages from offset %d)", m.Offset, messagesRead, startOffset)
-		break
 	}
 
 	// Save message if requested
 	if saveAs, ok := paramsMap["save_as"].(string); ok {
 		ctx.Set(saveAs, messageValue)
+	}
+
+	// Convert our Message type to kafka-go Message for assertions
+	kafkaMsg := kafka.Message{
+		Offset: msg.Offset,
+		Value:  msg.Raw,
+	}
+	// Convert headers map to kafka.Header slice
+	for key, value := range msg.Headers {
+		kafkaMsg.Headers = append(kafkaMsg.Headers, kafka.Header{
+			Key:   key,
+			Value: []byte(value),
+		})
 	}
 
 	// Run assertions
@@ -521,7 +564,7 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 				return fmt.Errorf("assertion %d is not a map", i)
 			}
 
-			if err := runKafkaAssertion(ctx, msg, messageValue, assertion); err != nil {
+			if err := runKafkaAssertion(ctx, kafkaMsg, messageValue, assertion); err != nil {
 				return fmt.Errorf("assertion %d failed: %w", i, err)
 			}
 		}

@@ -1,0 +1,92 @@
+templates:
+  # Wait for Orchid execution to complete with success status (30s timeout)
+  # Usage:
+  #   - use_template:
+  #       name: wait_for_execution
+  #       with:
+  #         plan_key: "{{plan.key}}"
+  wait_for_execution:
+    steps:
+      # Give execution a moment to be created
+      - wait:
+          duration: 200ms
+          reason: Allow execution record to be created
+      # First poll until we have at least one execution
+      - poll_until:
+          timeout: 30s
+          interval: 500ms
+          reason: Wait for execution to appear
+          check:
+            http_request:
+              service: orchid
+              method: GET
+              path: /api/v1/executions?plan_key={{plan_key}}
+              expect:
+                status: 200
+              save_as: executions
+            assert:
+              variable: executions
+              not_empty: true
+      # Then poll until status is success
+      - poll_until:
+          timeout: 30s
+          interval: 500ms
+          reason: Wait for execution to complete
+          check:
+            http_request:
+              service: orchid
+              method: GET
+              path: /api/v1/executions?plan_key={{plan_key}}
+              expect:
+                status: 200
+              save_as: executions
+            assert:
+              variable: executions[0].status
+              equals: "success"
+
+  # Wait for Orchid execution with custom status and timeout
+  # Usage:
+  #   - use_template:
+  #       name: wait_for_execution_status
+  #       with:
+  #         plan_key: "{{plan.key}}"
+  #         status: "aborted"
+  #         timeout: "10s"
+  wait_for_execution_status:
+    steps:
+      # Give execution a moment to be created
+      - wait:
+          duration: 200ms
+          reason: Allow execution record to be created
+      # First poll until we have at least one execution
+      - poll_until:
+          timeout: "{{timeout}}"
+          interval: 500ms
+          reason: Wait for execution to appear
+          check:
+            http_request:
+              service: orchid
+              method: GET
+              path: /api/v1/executions?plan_key={{plan_key}}
+              expect:
+                status: 200
+              save_as: executions
+            assert:
+              variable: executions
+              not_empty: true
+      # Then poll until status matches
+      - poll_until:
+          timeout: "{{timeout}}"
+          interval: 500ms
+          reason: Wait for execution status {{status}}
+          check:
+            http_request:
+              service: orchid
+              method: GET
+              path: /api/v1/executions?plan_key={{plan_key}}
+              expect:
+                status: 200
+              save_as: executions
+            assert:
+              variable: executions[0].status
+              equals: "{{status}}"

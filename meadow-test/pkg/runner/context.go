@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Ramsey-B/meadow-test/pkg/kafka"
 )
 
 // TestContext holds the state and configuration for test execution
@@ -42,6 +44,9 @@ type TestContext struct {
 
 	// HTTP client
 	httpClient *http.Client
+
+	// Background Kafka consumer for capturing messages
+	kafkaConsumer *kafka.BackgroundConsumer
 }
 
 // NewTestContext creates a new test context with a unique tenant ID
@@ -203,6 +208,40 @@ func (tc *TestContext) GetTemplate(name string) (map[string]interface{}, bool) {
 		return m, true
 	}
 	return nil, false
+}
+
+// StartKafkaConsumer starts a background Kafka consumer from the given offset
+func (tc *TestContext) StartKafkaConsumer(topic string, startOffset int64) error {
+	if tc.kafkaConsumer != nil {
+		// Already started
+		return nil
+	}
+
+	consumer, err := kafka.NewBackgroundConsumer(tc.KafkaBrokers, topic, startOffset)
+	if err != nil {
+		return fmt.Errorf("failed to start background Kafka consumer: %w", err)
+	}
+
+	tc.kafkaConsumer = consumer
+	if tc.Verbose {
+		fmt.Printf("  [KAFKA] Started background consumer from offset %d\n", startOffset)
+	}
+	return nil
+}
+
+// GetKafkaConsumer returns the background Kafka consumer (may be nil if not started)
+func (tc *TestContext) GetKafkaConsumer() interface{} {
+	return tc.kafkaConsumer
+}
+
+// Cleanup closes resources
+func (tc *TestContext) Cleanup() {
+	// Close Kafka consumer if running
+	if tc.kafkaConsumer != nil {
+		if err := tc.kafkaConsumer.Close(); err != nil {
+			fmt.Printf("  [KAFKA] Warning: failed to close consumer: %v\n", err)
+		}
+	}
 }
 
 // HTTPRequest makes an HTTP request with automatic service URL resolution

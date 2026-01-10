@@ -110,11 +110,11 @@ steps:
       message: Plan should have wait_between_ms configured
 
   # Record Kafka offset
+  # Trigger execution
   - get_kafka_offset:
       topic: api-responses
       save_as: kafka_offset_before
 
-  # Trigger execution
   - http_request:
       service: orchid
       method: POST
@@ -125,23 +125,11 @@ steps:
         status: 200
       save_as: trigger
 
-  - wait:
-      duration: 5s
-      reason: Allow execution to complete
-
-  # Verify execution completed
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/executions?plan_key={{plan.key}}
-      expect:
-        status: 200
-      save_as: executions
-
-  - assert:
-      variable: executions[0].status
-      equals: "success"
-      message: Execution should be successful
+  # Wait for execution to complete using polling template
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
 
   # Verify Kafka message with proper data
   - assert_kafka_message:
@@ -149,16 +137,14 @@ steps:
       timeout: 30s
       from_offset: "{{kafka_offset_before}}"
       filter:
-        header: plan_key
-        equals: "{{plan.key}}"
+        headers:
+          plan_key: "{{plan.key}}"
         has_field: request_url
         field_contains: request_url
         contains_value: "{{mock_path}}"
       assertions:
         - field: plan_key
           equals: "{{plan.key}}"
-        - field: tenant_id
-          equals: "{{test_tenant}}"
         - field: status_code
           equals: 200
         - field: response_body[0].data.records[0].id

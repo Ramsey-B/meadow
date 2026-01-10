@@ -19,6 +19,8 @@ type TestContext interface {
 	HTTPRequest(method, serviceOrURL, path string, headers map[string]string, body interface{}) (*http.Response, error)
 	Log(format string, args ...interface{})
 	Error(format string, args ...interface{})
+	StartKafkaConsumer(topic string, startOffset int64) error
+	GetKafkaConsumer() interface{} // Returns *kafka.BackgroundConsumer but using interface{} to avoid import cycle
 }
 
 // Wait implements the wait step
@@ -102,7 +104,20 @@ func Assert(ctx TestContext, params interface{}) error {
 		if equals, ok := paramsMap["equals"]; ok {
 			expectedVal := ctx.Interpolate(equals)
 			if !compareValuesForAssert(val, expectedVal) {
-				return fmt.Errorf("%s: %s = %v, expected %v", message, variable, val, expectedVal)
+				// For array access failures, provide more context
+				if strings.Contains(variable, "[") && val == nil {
+					// Try to get the parent array to see if it's empty
+					parts := strings.Split(variable, "[")
+					if len(parts) > 0 {
+						arrayName := parts[0]
+						if arrayVar, found := ctx.Get(arrayName); found {
+							if arr, ok := arrayVar.([]interface{}); ok {
+								return fmt.Errorf("%s: %s is nil (array %s has %d elements)", message, variable, arrayName, len(arr))
+							}
+						}
+					}
+				}
+				return fmt.Errorf("%s: %s = %v (type %T), expected %v (type %T)", message, variable, val, val, expectedVal, expectedVal)
 			}
 		}
 
@@ -125,6 +140,18 @@ func Assert(ctx TestContext, params interface{}) error {
 			// Check for empty slice/array
 			if reflect.ValueOf(val).Kind() == reflect.Slice && reflect.ValueOf(val).Len() == 0 {
 				return fmt.Errorf("%s: %s is empty array", message, variable)
+			}
+		}
+
+		// Check contains (for string substring matching)
+		if contains, ok := paramsMap["contains"]; ok {
+			containsStr := ctx.Interpolate(contains).(string)
+			if val == nil {
+				return fmt.Errorf("%s: %s is nil, cannot check contains", message, variable)
+			}
+			valStr := fmt.Sprintf("%v", val)
+			if !strings.Contains(valStr, containsStr) {
+				return fmt.Errorf("%s: %s = %q does not contain %q", message, variable, valStr, containsStr)
 			}
 		}
 
@@ -270,6 +297,102 @@ func toFloat64Assert(v interface{}) (float64, bool) {
 		return float64(n), true
 	default:
 		return 0, false
+	}
+}
+
+// PollUntil implements the poll_until step - repeatedly checks a condition until it's true or timeout
+func PollUntil(ctx TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("poll_until params must be a map")
+	}
+
+	// Parse timeout (default 30s)
+	timeoutStr := "30s"
+	if t, ok := paramsMap["timeout"].(string); ok {
+		timeoutStr = t
+	}
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid timeout duration: %w", err)
+	}
+
+	// Parse interval (default 1s)
+	intervalStr := "1s"
+	if i, ok := paramsMap["interval"].(string); ok {
+		intervalStr = i
+	}
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		return fmt.Errorf("invalid interval duration: %w", err)
+	}
+
+	// Get the condition to check - must be http_request or assert
+	check, ok := paramsMap["check"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("poll_until requires 'check' parameter with http_request or assert")
+	}
+
+	reason := ""
+	if r, ok := paramsMap["reason"].(string); ok {
+		reason = r
+	}
+
+	if reason != "" {
+		ctx.Log("Polling until condition met: %s (timeout=%s, interval=%s)", reason, timeout, interval)
+	} else {
+		ctx.Log("Polling until condition met (timeout=%s, interval=%s)", timeout, interval)
+	}
+
+	startTime := time.Now()
+	attempts := 0
+
+	for {
+		attempts++
+		elapsed := time.Since(startTime)
+
+		if elapsed >= timeout {
+			return fmt.Errorf("poll_until timed out after %s (%d attempts)", timeout, attempts)
+		}
+
+		// Execute the check - can be http_request followed by optional assert
+		var checkErr error
+
+		// First handle http_request if present
+		if httpReq, hasHTTP := check["http_request"]; hasHTTP {
+			checkErr = HTTPRequest(ctx, httpReq)
+			if checkErr != nil {
+				// HTTP request failed, retry
+				if attempts%5 == 0 {
+					ctx.Log("Poll attempt %d: HTTP request failed (will retry): %v", attempts, checkErr)
+				}
+				time.Sleep(interval)
+				continue
+			}
+
+			// HTTP succeeded, now check assertion if present
+			if assertCheck, hasAssert := check["assert"]; hasAssert {
+				checkErr = Assert(ctx, assertCheck)
+			}
+		} else if assertCheck, hasAssert := check["assert"]; hasAssert {
+			// Only assertion, no http_request
+			checkErr = Assert(ctx, assertCheck)
+		} else {
+			return fmt.Errorf("poll_until check must contain 'http_request' and/or 'assert'")
+		}
+
+		if checkErr == nil {
+			ctx.Log("Poll condition met after %d attempts (%s)", attempts, elapsed.Round(time.Millisecond))
+			return nil
+		}
+
+		// Log failure every 5 attempts to avoid spam
+		if attempts%5 == 0 {
+			ctx.Log("Poll attempt %d: condition not met (will retry): %v", attempts, checkErr)
+		}
+
+		// Wait before next attempt
+		time.Sleep(interval)
 	}
 }
 

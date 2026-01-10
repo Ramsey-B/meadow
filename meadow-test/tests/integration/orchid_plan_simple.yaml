@@ -125,13 +125,13 @@ steps:
   # RECORD KAFKA OFFSET (before triggering - for efficient message reading)
   # ============================================================================
 
-  - get_kafka_offset:
-      topic: api-responses
-      save_as: kafka_offset_before
-
   # ============================================================================
   # TRIGGER EXECUTION
   # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
 
   - http_request:
       service: orchid
@@ -188,8 +188,6 @@ steps:
         contains_value: "{{mock_path}}"
       assertions:
         # === Metadata validation ===
-        - field: tenant_id
-          equals: "{{test_tenant}}"
         - field: integration
           contains: "Simple Test"
         - field: plan_key

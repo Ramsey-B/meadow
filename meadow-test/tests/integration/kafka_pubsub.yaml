@@ -2,6 +2,11 @@ name: Kafka Publish and Consume
 description: Test publishing a message to Kafka and consuming it back
 
 steps:
+  # Get current Kafka offset before publishing
+  - get_kafka_offset:
+      topic: meadow-test-pubsub
+      save_as: kafka_offset_before
+
   # Publish a message with a unique message ID we can identify
   - publish_kafka:
       topic: meadow-test-pubsub
@@ -16,6 +21,7 @@ steps:
           email: "test@example.com"
       headers:
         source: meadow-test
+        tenant_id: "{{test_tenant}}"
 
   # Wait a moment for the message to be available
   - wait:
@@ -27,7 +33,10 @@ steps:
   - assert_kafka_message:
       topic: meadow-test-pubsub
       timeout: 30s
-      consume_from: earliest
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
       assertions:
         # Verify message content
         - field: message

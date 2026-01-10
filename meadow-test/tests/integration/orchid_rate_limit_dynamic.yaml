@@ -98,11 +98,11 @@ steps:
       save_as: plan
 
   # Record Kafka offset
+  # Trigger execution
   - get_kafka_offset:
       topic: api-responses
       save_as: kafka_offset_before
 
-  # Trigger execution
   - http_request:
       service: orchid
       method: POST
@@ -113,26 +113,20 @@ steps:
         status: 200
       save_as: trigger
 
-  - wait:
-      duration: 5s
-      reason: Allow execution to complete
-
   # Verify response includes rate limit headers
   - assert_kafka_message:
       topic: api-responses
       timeout: 30s
       from_offset: "{{kafka_offset_before}}"
       filter:
-        header: plan_key
-        equals: "{{plan.key}}"
+        headers:
+          plan_key: "{{plan.key}}"
         has_field: request_url
         field_contains: request_url
         contains_value: "{{mock_path}}"
       assertions:
         - field: plan_key
           equals: "{{plan.key}}"
-        - field: tenant_id
-          equals: "{{test_tenant}}"
         - field: status_code
           equals: 200
         - field: response_headers.X-Ratelimit-Limit

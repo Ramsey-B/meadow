@@ -34,6 +34,9 @@ func executeStep(testCtx *TestContext, step map[string]interface{}, stepLabel st
 	case "wait":
 		return steps.Wait(testCtx, params)
 
+	case "poll_until":
+		return steps.PollUntil(testCtx, params)
+
 	case "assert":
 		return steps.Assert(testCtx, params)
 
@@ -184,7 +187,10 @@ func executeTemplate(testCtx *TestContext, params interface{}) error {
 			return fmt.Errorf("template %s step %d is not a map", templateName, i)
 		}
 
-		if err := executeStep(testCtx, stepMap, fmt.Sprintf("template:%s[%d]", templateName, i)); err != nil {
+		// Interpolate the step map to replace template variables
+		interpolatedStep := testCtx.Interpolate(stepMap).(map[string]interface{})
+
+		if err := executeStep(testCtx, interpolatedStep, fmt.Sprintf("template:%s[%d]", templateName, i)); err != nil {
 			return fmt.Errorf("template %s step %d failed: %w", templateName, i, err)
 		}
 	}

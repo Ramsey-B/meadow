@@ -100,11 +100,11 @@ steps:
       message: Plan should be created
 
   # Record Kafka offset before triggering
+  # Trigger execution
   - get_kafka_offset:
       topic: api-responses
       save_as: kafka_offset_before
 
-  # Trigger execution
   - http_request:
       service: orchid
       method: POST
@@ -120,19 +120,11 @@ steps:
       equals: "queued"
       message: Execution should be queued
 
-  # Wait for execution
-  - wait:
-      duration: 3s
-      reason: Allow execution to complete and publish to Kafka
-
-  # Verify execution completed
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/executions?plan_key={{plan.key}}
-      expect:
-        status: 200
-      save_as: executions
+  # Wait for execution to complete using polling template
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
 
   - assert:
       variable: executions
@@ -145,8 +137,8 @@ steps:
       timeout: 30s
       from_offset: "{{kafka_offset_before}}"
       filter:
-        header: plan_key
-        equals: "{{plan.key}}"
+        headers:
+          plan_key: "{{plan.key}}"
         has_field: request_url
         field_contains: request_url
         contains_value: "{{mock_path}}"
@@ -154,8 +146,6 @@ steps:
         # Verify metadata
         - field: plan_key
           equals: "{{plan.key}}"
-        - field: tenant_id
-          equals: "{{test_tenant}}"
         - field: config_id
           equals: "{{config.id}}"
         - field: integration

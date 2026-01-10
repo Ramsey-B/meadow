@@ -88,6 +88,10 @@ steps:
       save_as: plan
 
   # Trigger execution
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST
@@ -98,18 +102,13 @@ steps:
         status: 200
       save_as: trigger
 
-  - wait:
-      duration: 3s
-      reason: Allow execution to complete
-
-  # Check execution status
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/executions?plan_key={{plan.key}}
-      expect:
-        status: 200
-      save_as: executions
+  # Wait for execution to abort using polling template
+  - use_template:
+      name: wait_for_execution_status
+      with:
+        plan_key: "{{plan.key}}"
+        status: "aborted"
+        timeout: "10s"
 
   - assert:
       variable: executions

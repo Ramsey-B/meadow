@@ -88,6 +88,10 @@ steps:
       save_as: kafka_offset_before
 
   # Trigger execution
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST

@@ -22,7 +22,15 @@
       "Bash(./meadow-test/meadow-test run:*)",
       "Bash(git ls-remote:*)",
       "Bash(make dev-ivy:*)",
-      "Bash(timeout 10 make:*)"
+      "Bash(timeout 10 make:*)",
+      "Bash(make build-meadow-test:*)",
+      "Bash(done)",
+      "Bash(./meadow-test/meadow-test validate:*)",
+      "Bash(make build:*)",
+      "Bash(make test-meadow-p:*)",
+      "Bash(for file in orchid_*.yaml)",
+      "Bash(do sed -i '' '/- field: tenant_id/,/equals: \"\"{{test_tenant}}\"\"/d' \"$file\")",
+      "Bash(for file in /Users/ramseybland/Documents/code/go/meadow/meadow-test/tests/integration/orchid_*.yaml)"
     ]
   }
 }

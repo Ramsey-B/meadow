@@ -133,17 +133,11 @@ steps:
         status: 200
       save_as: trigger
 
-  - wait:
-      duration: 5s
-      reason: Allow execution to complete
-
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/executions?plan_key={{plan.key}}
-      expect:
-        status: 200
-      save_as: executions
+  # Wait for execution to complete using polling template
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
 
   - assert:
       variable: executions[0].status
@@ -155,8 +149,8 @@ steps:
       timeout: 30s
       from_offset: "{{kafka_offset_before}}"
       filter:
-        header: plan_key
-        equals: "{{plan.key}}"
+        headers:
+          plan_key: "{{plan.key}}"
         has_field: request_url
         field_contains: request_url
         contains_value: "{{mock_path}}"

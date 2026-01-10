@@ -170,7 +170,7 @@ test-meadow-v:
 		echo "Building meadow-test first..."; \
 		cd meadow-test && go build -o meadow-test ./cmd/meadow-test; \
 	fi
-	cd meadow-test && ./meadow-test run -v tests/
+	cd meadow-test && ./meadow-test run -v -p 4 tests/
 
 test-meadow-integration:
 	@echo "Running meadow-test integration tests only..."

@@ -61,6 +61,10 @@ steps:
       save_as: plan
 
   # Try to trigger/execute the plan
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST

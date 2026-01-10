@@ -2,6 +2,11 @@ name: Kafka Connectivity Check
 description: Verify Kafka broker is accessible and can publish/consume messages
 
 steps:
+  # Get current offset before publishing
+  - get_kafka_offset:
+      topic: meadow-test-connectivity
+      save_as: kafka_offset_before
+
   # Publish a simple test message to verify Kafka is writable
   - publish_kafka:
       topic: meadow-test-connectivity
@@ -9,6 +14,8 @@ steps:
       value:
         test: connectivity
         timestamp: "{{timestamp}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
 
   # Wait a moment for the message to be committed
   - wait:
@@ -20,7 +27,10 @@ steps:
   - assert_kafka_message:
       topic: meadow-test-connectivity
       timeout: 10s
-      consume_from: earliest
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
       assertions:
         - field: test
           equals: connectivity

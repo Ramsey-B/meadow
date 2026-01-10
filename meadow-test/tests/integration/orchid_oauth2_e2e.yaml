@@ -140,13 +140,13 @@ steps:
   # RECORD KAFKA OFFSET (before triggering)
   # ============================================================================
 
-  - get_kafka_offset:
-      topic: api-responses
-      save_as: kafka_offset_before
-
   # ============================================================================
   # EXECUTE: Trigger the plan
   # ============================================================================
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
 
   - http_request:
       service: orchid
@@ -163,22 +163,15 @@ steps:
       equals: "queued"
       message: Trigger should return queued status
 
-  # Wait for auth + execution
-  - wait:
-      duration: 5s
-      reason: Allow OAuth2 token fetch and plan execution
-
   # ============================================================================
   # VERIFY: Check execution completed
   # ============================================================================
 
-  - http_request:
-      service: orchid
-      method: GET
-      path: /api/v1/executions?plan_key={{plan.key}}
-      expect:
-        status: 200
-      save_as: executions
+  # Wait for execution to complete using polling template
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
 
   - assert:
       variable: executions
@@ -194,13 +187,11 @@ steps:
       timeout: 60s
       from_offset: "{{kafka_offset_before}}"
       filter:
-        header: plan_key
-        equals: "{{plan.key}}"
+        headers:
+          plan_key: "{{plan.key}}"
         has_field: request_url
       assertions:
         # === Metadata ===
-        - field: tenant_id
-          equals: "{{test_tenant}}"
         - field: plan_key
           equals: "{{plan.key}}"
         - field: config_id

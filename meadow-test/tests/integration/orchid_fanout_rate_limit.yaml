@@ -96,6 +96,10 @@ steps:
       message: Rate limited plan should be retrievable
 
   # Trigger plan execution to verify rate limiting works
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST
