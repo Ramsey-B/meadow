@@ -1,0 +1,327 @@
+name: Lotus Date Transformation Actions
+description: |
+  Tests the date transformation actions available in Lotus:
+  - date_parse: Parse and reformat date strings
+  - date_format: Format dates to specific output formats
+  - date_add: Add/subtract time from dates
+
+steps:
+  # ============================================================================
+  # TEST 1: date_parse - Parse ISO date to date-only format
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Parse ISO Test"
+        source_raw:
+          created_at: "2024-06-15T14:30:00Z"
+        source_fields:
+          - id: input_date
+            path: "created_at"
+            type: string
+        target_fields:
+          - id: formatted
+            path: "formatted"
+            type: string
+        steps:
+          - id: parse
+            type: transformer
+            action:
+              key: date_parse
+              arguments:
+                output_format: "date"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: parse
+          - source:
+              step_id: parse
+            target:
+              field_id: formatted
+      expect:
+        status: 200
+      save_as: parse_iso_result
+
+  # Verify date was reformatted to YYYY-MM-DD
+  - assert:
+      variable: parse_iso_result.target_raw.formatted
+      equals: "2024-06-15"
+      message: ISO date should be reformatted to YYYY-MM-DD
+
+  # ============================================================================
+  # TEST 2: date_parse - Parse with custom output format
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Parse Custom Format Test"
+        source_raw:
+          timestamp: "2024-12-25T09:30:00Z"
+        source_fields:
+          - id: input_date
+            path: "timestamp"
+            type: string
+        target_fields:
+          - id: custom
+            path: "custom"
+            type: string
+        steps:
+          - id: parse
+            type: transformer
+            action:
+              key: date_parse
+              arguments:
+                output_format: "Jan 02, 2006"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: parse
+          - source:
+              step_id: parse
+            target:
+              field_id: custom
+      expect:
+        status: 200
+      save_as: parse_custom_result
+
+  # Verify custom format
+  - assert:
+      variable: parse_custom_result.target_raw.custom
+      equals: "Dec 25, 2024"
+      message: Date should be formatted as "Dec 25, 2024"
+
+  # ============================================================================
+  # TEST 3: date_parse - Parse date-only string to ISO
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Parse Date-Only Test"
+        source_raw:
+          date: "2024-01-15"
+        source_fields:
+          - id: input_date
+            path: "date"
+            type: string
+        target_fields:
+          - id: iso
+            path: "iso"
+            type: string
+        steps:
+          - id: parse
+            type: transformer
+            action:
+              key: date_parse
+              arguments:
+                output_format: "iso8601"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: parse
+          - source:
+              step_id: parse
+            target:
+              field_id: iso
+      expect:
+        status: 200
+      save_as: parse_date_result
+
+  # Verify date-only string was parsed and formatted to ISO
+  - assert:
+      variable: parse_date_result.target_raw.iso
+      contains: "2024-01-15"
+      message: Date should be converted to ISO format
+
+  # ============================================================================
+  # TEST 4: date_format - Extract time from datetime
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Format Time Test"
+        source_raw:
+          event_date: "2024-03-14T15:09:26Z"
+        source_fields:
+          - id: input_date
+            path: "event_date"
+            type: string
+        target_fields:
+          - id: time_only
+            path: "time_only"
+            type: string
+        steps:
+          - id: format
+            type: transformer
+            action:
+              key: date_format
+              arguments:
+                format: "time"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: format
+          - source:
+              step_id: format
+            target:
+              field_id: time_only
+      expect:
+        status: 200
+      save_as: format_result
+
+  # Verify time-only format
+  - assert:
+      variable: format_result.target_raw.time_only
+      equals: "15:09:26"
+      message: Time should be extracted from datetime
+
+  # ============================================================================
+  # TEST 5: date_add - Add days to a date
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Add Days Test"
+        source_raw:
+          start_date: "2024-01-28"
+        source_fields:
+          - id: input_date
+            path: "start_date"
+            type: string
+        target_fields:
+          - id: end_date
+            path: "end_date"
+            type: string
+        steps:
+          - id: add
+            type: transformer
+            action:
+              key: date_add
+              arguments:
+                days: 5
+                format: "date"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: add
+          - source:
+              step_id: add
+            target:
+              field_id: end_date
+      expect:
+        status: 200
+      save_as: add_days_result
+
+  # Verify days were added (Jan 28 + 5 = Feb 2)
+  - assert:
+      variable: add_days_result.target_raw.end_date
+      equals: "2024-02-02"
+      message: 5 days added to Jan 28 should be Feb 02
+
+  # ============================================================================
+  # TEST 6: date_add - Add months
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Add Months Test"
+        source_raw:
+          date: "2024-01-15"
+        source_fields:
+          - id: input_date
+            path: "date"
+            type: string
+        target_fields:
+          - id: future_date
+            path: "future_date"
+            type: string
+        steps:
+          - id: add
+            type: transformer
+            action:
+              key: date_add
+              arguments:
+                months: 3
+                format: "date"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: add
+          - source:
+              step_id: add
+            target:
+              field_id: future_date
+      expect:
+        status: 200
+      save_as: add_months_result
+
+  # Verify months were added
+  - assert:
+      variable: add_months_result.target_raw.future_date
+      equals: "2024-04-15"
+      message: 3 months added to Jan 15 should be Apr 15
+
+  # ============================================================================
+  # TEST 7: date_add - Subtract time (negative values)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Date Subtract Test"
+        source_raw:
+          date: "2024-03-01"
+        source_fields:
+          - id: input_date
+            path: "date"
+            type: string
+        target_fields:
+          - id: past_date
+            path: "past_date"
+            type: string
+        steps:
+          - id: subtract
+            type: transformer
+            action:
+              key: date_add
+              arguments:
+                days: -7
+                format: "date"
+        links:
+          - source:
+              field_id: input_date
+            target:
+              step_id: subtract
+          - source:
+              step_id: subtract
+            target:
+              field_id: past_date
+      expect:
+        status: 200
+      save_as: subtract_result
+
+  # Verify days were subtracted
+  - assert:
+      variable: subtract_result.target_raw.past_date
+      equals: "2024-02-23"
+      message: 7 days before Mar 1 should be Feb 23
+
+cleanup: []

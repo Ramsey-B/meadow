@@ -62,11 +62,11 @@ steps:
         status: 200
       save_as: number_result
 
-  # Verify number mapping
+  # Verify number mapping: 25 -> 25
   - assert:
       variable: number_result.target_raw.age
-      not_empty: true
-      message: Number should map directly
+      equals: 25
+      message: Number 25 should map directly
 
   # Test bool to bool (direct match)
   - http_request:
@@ -95,11 +95,11 @@ steps:
         status: 200
       save_as: bool_result
 
-  # Verify bool mapping
+  # Verify bool mapping: true -> true
   - assert:
       variable: bool_result.target_raw.is_active
-      not_empty: true
-      message: Bool should map directly
+      equals: true
+      message: Bool true should map directly
 
   # Test array to array (direct match)
   - http_request:
@@ -128,11 +128,21 @@ steps:
         status: 200
       save_as: array_result
 
-  # Verify array mapping
+  # Verify array mapping: ["backend", "api", "golang"]
   - assert:
-      variable: array_result.target_raw.tags
-      not_empty: true
-      message: Array should map directly
+      variable: array_result.target_raw.tags[0]
+      equals: "backend"
+      message: First array element should be "backend"
+
+  - assert:
+      variable: array_result.target_raw.tags[1]
+      equals: "api"
+      message: Second array element should be "api"
+
+  - assert:
+      variable: array_result.target_raw.tags[2]
+      equals: "golang"
+      message: Third array element should be "golang"
 
   # Test object to object (direct match)
   - http_request:
@@ -165,9 +175,14 @@ steps:
 
   # Verify object mapping
   - assert:
-      variable: object_result.target_raw.meta
-      not_empty: true
-      message: Object should map directly
+      variable: object_result.target_raw.meta.created
+      equals: "2024-01-01"
+      message: Object property "created" should be preserved
+
+  - assert:
+      variable: object_result.target_raw.meta.version
+      equals: 1
+      message: Object property "version" should be preserved
 
   # Test string to number coercion (using text_to_number)
   - http_request:
@@ -204,11 +219,11 @@ steps:
         status: 200
       save_as: str_to_num_result
 
-  # Verify coercion
+  # Verify coercion: "42" -> 42
   - assert:
       variable: str_to_num_result.target_raw.count
-      not_empty: true
-      message: String should be coerced to number
+      equals: 42
+      message: String "42" should be coerced to number 42
 
   # Test string to bool coercion (using text_to_bool)
   - http_request:
@@ -245,11 +260,11 @@ steps:
         status: 200
       save_as: str_to_bool_result
 
-  # Verify coercion
+  # Verify coercion: "true" -> true
   - assert:
       variable: str_to_bool_result.target_raw.flag
-      not_empty: true
-      message: String should be coerced to bool
+      equals: true
+      message: String "true" should be coerced to boolean true
 
   # Test number to string coercion (using number_to_string)
   - http_request:

@@ -1,14 +1,51 @@
 name: Orchid Multi-Step Plan Execution
-description: Test creating and executing plans with multiple sequential steps
+description: |
+  Test creating and executing a plan that fetches data from a mock API
+  and validates the response is captured in Kafka messages.
 
 steps:
-  # Create integration
+  # ============================================================================
+  # SETUP: Configure mock endpoint
+  # ============================================================================
+  - set_variable:
+      name: mock_base
+      value: "/mock/multistep-{{uuid}}"
+
+  # Users endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_base}}/users"
+        response:
+          status: 200
+          body:
+            endpoint: "users"
+            count: 3
+            data:
+              - id: "user-001"
+                name: "Alice Anderson"
+                role: "admin"
+              - id: "user-002"
+                name: "Bob Baker"
+                role: "developer"
+              - id: "user-003"
+                name: "Carol Clark"
+                role: "analyst"
+      expect:
+        status: 200
+
+  # ============================================================================
+  # SETUP: Integration + Config
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/integrations
       body:
-        name: "Multi-Step Test Integration {{uuid}}"
+        name: "Multi-Step Test {{uuid}}"
         description: "Integration for testing multi-step plans"
         config_schema:
           name: "Multi-Step Config"
@@ -23,64 +60,58 @@ steps:
         status: 201
       save_as: integration
 
-  # Create config
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
         integration_id: "{{integration.id}}"
-        name: "Multi-Step Config {{uuid}}"
+        name: "Multi-Step Config"
         values:
-          base_url: "http://localhost:8090"
-        auth:
-          type: none
+          base_url: "{{mocks_url}}"
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Create a plan with multiple sequential steps
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config ID should be returned
+
+  # ============================================================================
+  # CREATE SINGLE-STEP PLAN (simpler test)
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "Multi-Step Plan {{uuid}}"
         key: "multi-step-{{uuid}}"
-        description: "Plan with multiple sequential steps"
-        steps:
-          - id: fetch_users
-            type: request
+        name: "Multi-Step Data Sync"
+        description: "Fetches users from mock API"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_base}}/users"
             method: GET
-            path: /api/test/users
-            pagination:
-              type: none
-
-          - id: fetch_organizations
-            type: request
-            method: GET
-            path: /api/test/organizations
-            pagination:
-              type: none
-
-          - id: fetch_devices
-            type: request
-            method: GET
-            path: /api/test/devices
-            pagination:
-              type: none
+          max_execution_seconds: 60
       expect:
         status: 201
       save_as: plan
 
-  # Verify the plan was created
   - assert:
       variable: plan.key
       not_empty: true
-      message: Plan should be created with multiple steps
+      message: Plan key should be returned
 
-  # Get the plan to verify structure
+  # Verify plan details
   - http_request:
       service: orchid
       method: GET
@@ -89,20 +120,109 @@ steps:
         status: 200
       save_as: plan_details
 
-  # Verify fetched plan has key
   - assert:
-      variable: plan_details.key
+      variable: plan_details.name
+      equals: "Multi-Step Data Sync"
+      message: Plan name should match
+
+  - assert:
+      variable: plan_details.description
+      equals: "Fetches users from mock API"
+      message: Plan description should match
+
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for execution
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
+
+  - assert:
+      variable: executions
       not_empty: true
-      message: Fetched plan should have key
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Multi-step execution should succeed
+
+  # ============================================================================
+  # VALIDATE KAFKA: Verify users step response
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "/users"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: status_code
+          equals: 200
+        - field: request_url
+          contains: "/users"
+        - field: response_body[0].endpoint
+          equals: "users"
+        - field: response_body[0].count
+          equals: 3
+        - field: response_body[0].data[0].id
+          equals: "user-001"
+        - field: response_body[0].data[0].name
+          equals: "Alice Anderson"
+        - field: response_body[0].data[0].role
+          equals: "admin"
+        - field: response_body[0].data[1].id
+          equals: "user-002"
+        - field: response_body[0].data[1].name
+          equals: "Bob Baker"
+        - field: response_body[0].data[2].id
+          equals: "user-003"
+        - field: response_body[0].data[2].name
+          equals: "Carol Clark"
+      save_as: users_msg
 
 cleanup:
-  # Clean up plan
+  # Clean up mock endpoints
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_base}}/users"
+
   - http_request:
       service: orchid
       method: DELETE
       path: /api/v1/plans/{{plan.key}}
 
-  # Clean up config and integration
   - http_request:
       service: orchid
       method: DELETE

@@ -47,6 +47,22 @@ steps:
         status: 201
       save_as: config_dev
 
+  # Verify dev config was created with correct values
+  - assert:
+      variable: config_dev.id
+      not_empty: true
+      message: Dev config ID should be returned
+
+  - assert:
+      variable: config_dev.name
+      equals: "Dev Config"
+      message: Dev config name should match
+
+  - assert:
+      variable: config_dev.integration_id
+      equals: "{{integration.id}}"
+      message: Dev config should reference correct integration
+
   # Create second config (staging environment)
   - http_request:
       service: orchid
@@ -65,6 +81,17 @@ steps:
         status: 201
       save_as: config_staging
 
+  # Verify staging config was created with correct values
+  - assert:
+      variable: config_staging.id
+      not_empty: true
+      message: Staging config ID should be returned
+
+  - assert:
+      variable: config_staging.name
+      equals: "Staging Config"
+      message: Staging config name should match
+
   # List all configs for this integration
   - http_request:
       service: orchid
@@ -74,13 +101,25 @@ steps:
         status: 200
       save_as: configs_list
 
-  # Verify configs can be retrieved individually
+  # Verify both configs are in the list
+  - assert:
+      variable: configs_list
+      not_empty: true
+      message: Config list should not be empty
+
+  # Verify configs can be retrieved individually with correct values
   - http_request:
       service: orchid
       method: GET
       path: /api/v1/configs/{{config_dev.id}}
       expect:
         status: 200
+      save_as: config_dev_get
+
+  - assert:
+      variable: config_dev_get.name
+      equals: "Dev Config"
+      message: Retrieved dev config name should match
 
   - http_request:
       service: orchid
@@ -88,6 +127,12 @@ steps:
       path: /api/v1/configs/{{config_staging.id}}
       expect:
         status: 200
+      save_as: config_staging_get
+
+  - assert:
+      variable: config_staging_get.name
+      equals: "Staging Config"
+      message: Retrieved staging config name should match
 
 cleanup:
   # Delete configs

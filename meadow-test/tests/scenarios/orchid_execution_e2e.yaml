@@ -1,76 +1,139 @@
 name: Orchid Plan Execution E2E
-description: End-to-end test that executes an Orchid plan and verifies data extraction works
+description: |
+  End-to-end test that:
+  1. Creates an integration and config
+  2. Creates a plan that fetches OKTA users from mock API
+  3. Triggers execution
+  4. Waits for execution to complete
+  5. Validates Kafka message contains actual OKTA user data
 
 steps:
-  # Create integration
+  # ============================================================================
+  # SETUP: Integration + Config
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/integrations
       body:
-        name: "Execution Test Integration {{uuid}}"
-        description: "Integration for testing actual plan execution"
+        name: "E2E Execution Test {{uuid}}"
+        description: "Integration for full E2E execution testing"
         config_schema:
-          name: "Execution Config"
+          name: "E2E Execution Config"
           schema:
             type: object
             properties:
               base_url:
                 type: string
+              client_id:
+                type: string
+              client_secret:
+                type: string
             required:
               - base_url
+              - client_id
+              - client_secret
       expect:
         status: 201
       save_as: integration
 
-  # Create config
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
+  - assert:
+      variable: integration.description
+      equals: "Integration for full E2E execution testing"
+      message: Integration description should match
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
         integration_id: "{{integration.id}}"
-        name: "Execution Config {{uuid}}"
+        name: "E2E Config"
         values:
-          base_url: "http://localhost:8090"
-        auth:
-          type: none
+          base_url: "{{mocks_url}}"
+          client_id: "e2e-client-id"
+          client_secret: "e2e-client-secret"
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Create a simple plan that fetches test data
+  - assert:
+      variable: config.id
+      not_empty: true
+      message: Config ID should be returned
+
+  - assert:
+      variable: config.name
+      equals: "E2E Config"
+      message: Config name should match
+
+  # ============================================================================
+  # AUTH FLOW: OAuth2 Client Credentials
+  # ============================================================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "E2E OAuth2 Flow"
+        plan_definition:
+          url: "{{ config.base_url }}/oauth2/v1/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope=okta.users.read"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  - assert:
+      variable: auth_flow.id
+      not_empty: true
+      message: Auth flow ID should be returned
+
+  # ============================================================================
+  # CREATE PLAN: Fetch OKTA Users
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "Execution Test Plan {{uuid}}"
-        key: "exec-test-{{uuid}}"
-        description: "Plan that fetches users from mock API"
-        steps:
-          - id: fetch_users
-            type: request
+        key: "e2e-okta-users-{{uuid}}"
+        name: "E2E OKTA Users Fetch"
+        description: "Full E2E test fetching OKTA users"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/api/v1/users"
             method: GET
-            path: /api/test/users
-            pagination:
-              type: none
-        output:
-          kafka:
-            enabled: true
-            topic: "orchid.execution.test.{{timestamp}}"
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+          max_execution_seconds: 60
       expect:
         status: 201
       save_as: plan
 
-  # Verify plan was created with output configuration
   - assert:
       variable: plan.key
       not_empty: true
-      message: Plan should be created
+      message: Plan key should be returned
 
-  # Get the plan to verify it's configured correctly
+  # Verify plan details
   - http_request:
       service: orchid
       method: GET
@@ -79,19 +142,28 @@ steps:
         status: 200
       save_as: plan_details
 
-  # Verify plan has the correct integration
+  - assert:
+      variable: plan_details.name
+      equals: "E2E OKTA Users Fetch"
+      message: Plan name should match
+
   - assert:
       variable: plan_details.integration_id
       equals: "{{integration.id}}"
       message: Plan should reference correct integration
 
-  # Verify the plan key matches what we created
   - assert:
-      variable: plan_details.key
-      equals: "{{plan.key}}"
-      message: Plan key should match
+      variable: plan_details.description
+      equals: "Full E2E test fetching OKTA users"
+      message: Plan description should match
 
-  # Trigger the plan execution
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST
@@ -100,31 +172,161 @@ steps:
         config_id: "{{config.id}}"
       expect:
         status: 200
-      save_as: execution
+      save_as: trigger
 
-  # Verify execution was queued
   - assert:
-      variable: execution.status
+      variable: trigger.status
       equals: "queued"
       message: Execution should be queued
 
-  # Verify message ID was returned
   - assert:
-      variable: execution.message_id
+      variable: trigger.message_id
       not_empty: true
       message: Message ID should be returned for tracking
 
-  # Note: Full E2E validation would require:
-  # 1. Wait for execution to complete
-  # 2. Consume from Kafka topic
-  # 3. Verify extracted data matches expected schema
+  # Wait for execution to complete
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
+
+  - assert:
+      variable: executions
+      not_empty: true
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Execution should complete successfully
+
+  - assert:
+      variable: executions[0].plan_key
+      equals: "{{plan.key}}"
+      message: Execution should reference correct plan
+
+  # ============================================================================
+  # VALIDATE KAFKA: Full OKTA user data validation
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "/api/v1/users"
+      assertions:
+        # === Execution Metadata ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === HTTP Request Details ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/api/v1/users"
+        - field: status_code
+          equals: 200
+
+        # === OKTA User Data Validation ===
+        # First user: John Doe (Engineering)
+        - field: response_body[0].id
+          equals: "okta-user-001"
+        - field: response_body[0].status
+          equals: "ACTIVE"
+        - field: response_body[0].created
+          equals: "2023-01-15T10:00:00Z"
+        - field: response_body[0].profile.firstName
+          equals: "John"
+        - field: response_body[0].profile.lastName
+          equals: "Doe"
+        - field: response_body[0].profile.email
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.login
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.department
+          equals: "Engineering"
+        - field: response_body[0].profile.title
+          equals: "Senior Developer"
+        - field: response_body[0].profile.mobilePhone
+          equals: "+1-555-0101"
+
+        # Second user: Jane Smith (Marketing)
+        - field: response_body[1].id
+          equals: "okta-user-002"
+        - field: response_body[1].status
+          equals: "ACTIVE"
+        - field: response_body[1].profile.firstName
+          equals: "Jane"
+        - field: response_body[1].profile.lastName
+          equals: "Smith"
+        - field: response_body[1].profile.email
+          equals: "jane.smith@acme.com"
+        - field: response_body[1].profile.department
+          equals: "Marketing"
+        - field: response_body[1].profile.title
+          equals: "Marketing Manager"
+
+        # Third user: Bob Wilson (Sales)
+        - field: response_body[2].id
+          equals: "okta-user-003"
+        - field: response_body[2].status
+          equals: "ACTIVE"
+        - field: response_body[2].profile.firstName
+          equals: "Bob"
+        - field: response_body[2].profile.lastName
+          equals: "Wilson"
+        - field: response_body[2].profile.department
+          equals: "Sales"
+        - field: response_body[2].profile.title
+          equals: "Account Executive"
+
+        # Fourth user: Alice Johnson (Engineering - Tech Lead)
+        - field: response_body[3].id
+          equals: "okta-user-004"
+        - field: response_body[3].profile.firstName
+          equals: "Alice"
+        - field: response_body[3].profile.lastName
+          equals: "Johnson"
+        - field: response_body[3].profile.department
+          equals: "Engineering"
+        - field: response_body[3].profile.title
+          equals: "Tech Lead"
+
+        # Fifth user: Charlie Brown (SUSPENDED user)
+        - field: response_body[4].id
+          equals: "okta-user-005"
+        - field: response_body[4].status
+          equals: "SUSPENDED"
+        - field: response_body[4].profile.firstName
+          equals: "Charlie"
+        - field: response_body[4].profile.department
+          equals: "HR"
+      save_as: kafka_message
+
+  # Verify consumed message was saved correctly
+  - assert:
+      variable: kafka_message.status_code
+      equals: 200
+      message: Kafka message should contain successful response
 
 cleanup:
-  # Clean up resources
   - http_request:
       service: orchid
       method: DELETE
       path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
 
   - http_request:
       service: orchid

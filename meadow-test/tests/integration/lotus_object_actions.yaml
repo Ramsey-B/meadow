@@ -92,11 +92,21 @@ steps:
         status: 200
       save_as: pick_result
 
-  # Verify pick result exists
+  # Verify pick result contains only the selected keys (name, email, age)
   - assert:
-      variable: pick_result.target_raw.public
-      not_empty: true
-      message: Picked object should be returned
+      variable: pick_result.target_raw.public.name
+      equals: "Bob"
+      message: Picked object should contain name
+
+  - assert:
+      variable: pick_result.target_raw.public.email
+      equals: "bob@example.com"
+      message: Picked object should contain email
+
+  - assert:
+      variable: pick_result.target_raw.public.age
+      equals: 30
+      message: Picked object should contain age
 
   # Test object_omit - exclude specific keys
   - http_request:
@@ -139,11 +149,16 @@ steps:
         status: 200
       save_as: omit_result
 
-  # Verify omit result exists
+  # Verify omit removes sensitive keys but keeps others
   - assert:
-      variable: omit_result.target_raw.safe
-      not_empty: true
-      message: Omitted object should be returned
+      variable: omit_result.target_raw.safe.name
+      equals: "Charlie"
+      message: Omitted object should keep name
+
+  - assert:
+      variable: omit_result.target_raw.safe.email
+      equals: "charlie@example.com"
+      message: Omitted object should keep email
 
   # Test object_merge - combine multiple objects
   - http_request:
@@ -193,11 +208,21 @@ steps:
         status: 200
       save_as: merge_result
 
-  # Verify merge result exists
+  # Verify merge combines objects with overrides taking precedence
   - assert:
-      variable: merge_result.target_raw.settings
-      not_empty: true
-      message: Merged object should be returned
+      variable: merge_result.target_raw.settings.theme
+      equals: "dark"
+      message: Merged object should use override value for theme
+
+  - assert:
+      variable: merge_result.target_raw.settings.language
+      equals: "en"
+      message: Merged object should keep default value for language
+
+  - assert:
+      variable: merge_result.target_raw.settings.notifications
+      equals: false
+      message: Merged object should use override value for notifications
 
   # Test object_keys - get array of object keys
   - http_request:
@@ -237,11 +262,13 @@ steps:
         status: 200
       save_as: keys_result
 
-  # Verify keys result exists
+  # Verify keys extracts all object keys
+  # Object: { name: "Test", value: 123, active: true }
+  # Note: Key order is non-deterministic (Go map iteration)
   - assert:
       variable: keys_result.target_raw.keys
       not_empty: true
-      message: Keys array should be returned
+      message: Keys array should not be empty
 
   # Test object_values - get array of object values
   - http_request:
@@ -281,8 +308,10 @@ steps:
         status: 200
       save_as: values_result
 
-  # Verify values result exists
+  # Verify values extracts all object values
+  # Object: { first: "John", last: "Doe", age: 30 }
+  # Note: Value order is non-deterministic (Go map iteration)
   - assert:
       variable: values_result.target_raw.values
       not_empty: true
-      message: Values array should be returned
+      message: Values array should not be empty

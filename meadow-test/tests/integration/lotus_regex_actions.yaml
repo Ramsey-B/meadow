@@ -39,11 +39,11 @@ steps:
         status: 200
       save_as: match_result
 
-  # Verify match result
+  # Verify match result - "user@example.com" matches email pattern
   - assert:
       variable: match_result.target_raw.is_email
-      not_empty: true
-      message: Regex match should return boolean
+      equals: true
+      message: Regex should match valid email address "user@example.com"
 
   # Test text_regex_replace - replace pattern with string
   - http_request:
@@ -83,11 +83,11 @@ steps:
         status: 200
       save_as: replace_result
 
-  # Verify replace result
+  # Verify replace result - phone numbers masked
   - assert:
       variable: replace_result.target_raw.sanitized
-      not_empty: true
-      message: Regex replace should return modified text
+      equals: "Phone: XXX-XXXX, Office: XXX-XXXX"
+      message: Phone numbers should be masked with XXX-XXXX
 
   # Test text_regex_extract - extract matches from text
   - http_request:
@@ -126,11 +126,11 @@ steps:
         status: 200
       save_as: extract_result
 
-  # Verify extract result
+  # Verify extract result - pattern #(\d+) returns full match "#12345"
   - assert:
       variable: extract_result.target_raw.extracted
-      not_empty: true
-      message: Regex extract should return matched text
+      equals: "#12345"
+      message: Should extract matched pattern "#12345" from text
 
   # Test multiple replacements (remove special characters)
   - http_request:
@@ -170,11 +170,11 @@ steps:
         status: 200
       save_as: clean_result
 
-  # Verify clean result
+  # Verify clean result - "user@name#123!" becomes "username123"
   - assert:
       variable: clean_result.target_raw.clean
-      not_empty: true
-      message: Should remove special characters
+      equals: "username123"
+      message: Should remove special characters (@, #, !) leaving "username123"
 
   # Test extracting domain from email
   - http_request:
@@ -213,8 +213,8 @@ steps:
         status: 200
       save_as: domain_result
 
-  # Verify domain extraction
+  # Verify domain extraction - pattern "@([a-zA-Z0-9.-]+)" returns full match
   - assert:
       variable: domain_result.target_raw.domain
-      not_empty: true
-      message: Should extract domain from email
+      equals: "@company.com"
+      message: Should extract matched pattern "@company.com" from email

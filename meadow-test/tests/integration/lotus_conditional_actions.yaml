@@ -1,0 +1,267 @@
+name: Lotus Conditional Transformation Actions
+description: |
+  Tests the conditional/any transformation actions available in Lotus:
+  - any_is_nil: Check if a value is nil
+  - any_is_empty: Check if a value is nil, empty string, or empty array/object
+  - any_to_string: Convert any value to string
+
+steps:
+  # ============================================================================
+  # TEST 1: any_is_nil - Check nil value returns true
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Nil True Test"
+        source_raw:
+          value: null
+        source_fields:
+          - id: input
+            path: "value"
+            type: any
+        target_fields:
+          - id: result
+            path: "is_nil"
+            type: bool
+        steps:
+          - id: check_nil
+            type: transformer
+            action:
+              key: any_is_nil
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_nil
+          - source:
+              step_id: check_nil
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: nil_true_result
+
+  # Verify nil is detected
+  - assert:
+      variable: nil_true_result.target_raw.is_nil
+      equals: true
+      message: Should return true for nil value
+
+  # ============================================================================
+  # TEST 2: any_is_nil - Check non-nil value returns false
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Nil False Test"
+        source_raw:
+          value: "hello"
+        source_fields:
+          - id: input
+            path: "value"
+            type: string
+        target_fields:
+          - id: result
+            path: "is_nil"
+            type: bool
+        steps:
+          - id: check_nil
+            type: transformer
+            action:
+              key: any_is_nil
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_nil
+          - source:
+              step_id: check_nil
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: nil_false_result
+
+  # Verify non-nil is detected
+  - assert:
+      variable: nil_false_result.target_raw.is_nil
+      equals: false
+      message: Should return false for non-nil value
+
+  # ============================================================================
+  # TEST 3: any_is_empty - Check empty string returns true
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Empty String Test"
+        source_raw:
+          value: ""
+        source_fields:
+          - id: input
+            path: "value"
+            type: string
+        target_fields:
+          - id: result
+            path: "is_empty"
+            type: bool
+        steps:
+          - id: check_empty
+            type: transformer
+            action:
+              key: any_is_empty
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_empty
+          - source:
+              step_id: check_empty
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: empty_string_result
+
+  # Verify empty string is detected
+  - assert:
+      variable: empty_string_result.target_raw.is_empty
+      equals: true
+      message: Should return true for empty string
+
+  # ============================================================================
+  # TEST 4: any_is_empty - Check empty array returns true
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Empty Array Test"
+        source_raw:
+          items: []
+        source_fields:
+          - id: input
+            path: "items"
+            type: array
+        target_fields:
+          - id: result
+            path: "is_empty"
+            type: bool
+        steps:
+          - id: check_empty
+            type: transformer
+            action:
+              key: any_is_empty
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_empty
+          - source:
+              step_id: check_empty
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: empty_array_result
+
+  # Verify empty array is detected
+  - assert:
+      variable: empty_array_result.target_raw.is_empty
+      equals: true
+      message: Should return true for empty array
+
+  # ============================================================================
+  # TEST 5: any_is_empty - Check non-empty value returns false
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Empty False Test"
+        source_raw:
+          value: "hello"
+        source_fields:
+          - id: input
+            path: "value"
+            type: string
+        target_fields:
+          - id: result
+            path: "is_empty"
+            type: bool
+        steps:
+          - id: check_empty
+            type: transformer
+            action:
+              key: any_is_empty
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_empty
+          - source:
+              step_id: check_empty
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: not_empty_result
+
+  # Verify non-empty value is detected
+  - assert:
+      variable: not_empty_result.target_raw.is_empty
+      equals: false
+      message: Should return false for non-empty value
+
+  # ============================================================================
+  # TEST 6: any_is_empty - Check null returns true
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Empty Null Test"
+        source_raw:
+          value: null
+        source_fields:
+          - id: input
+            path: "value"
+            type: any
+        target_fields:
+          - id: result
+            path: "is_empty"
+            type: bool
+        steps:
+          - id: check_empty
+            type: transformer
+            action:
+              key: any_is_empty
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: check_empty
+          - source:
+              step_id: check_empty
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: empty_null_result
+
+  # Verify null is considered empty
+  - assert:
+      variable: empty_null_result.target_raw.is_empty
+      equals: true
+      message: Should return true for null value
+
+cleanup: []

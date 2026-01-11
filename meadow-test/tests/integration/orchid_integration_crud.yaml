@@ -25,11 +25,16 @@ steps:
         status: 201
       save_as: integration_response
 
-  # Verify the integration was created
+  # Verify the integration was created with correct data
   - assert:
       variable: integration_response.id
       not_empty: true
       message: Integration ID should be returned
+
+  - assert:
+      variable: integration_response.description
+      equals: "Integration created by meadow-test"
+      message: Integration description should match
 
   # Read the integration back
   - http_request:
@@ -40,16 +45,42 @@ steps:
         status: 200
       save_as: get_response
 
+  # Verify the read response has correct values
+  - assert:
+      variable: get_response.id
+      equals: "{{integration_response.id}}"
+      message: Retrieved integration should have same ID
+
+  - assert:
+      variable: get_response.description
+      equals: "Integration created by meadow-test"
+      message: Retrieved integration description should match
+
   # Update the integration
   - http_request:
       service: orchid
       method: PUT
       path: /api/v1/integrations/{{integration_response.id}}
       body:
-        name: "Updated Integration {{uuid}}"
+        name: "Updated Integration"
         description: "Updated description"
       expect:
         status: 200
+      save_as: update_response
+
+  # Verify the update was applied
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/integrations/{{integration_response.id}}
+      expect:
+        status: 200
+      save_as: updated_get_response
+
+  - assert:
+      variable: updated_get_response.description
+      equals: "Updated description"
+      message: Integration description should be updated
 
   # List integrations and verify ours is there
   - http_request:
@@ -59,6 +90,11 @@ steps:
       expect:
         status: 200
       save_as: list_response
+
+  - assert:
+      variable: list_response
+      not_empty: true
+      message: Integration list should not be empty
 
 cleanup:
   # Delete the integration

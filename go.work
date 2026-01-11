@@ -7,5 +7,4 @@ use (
 	./mocks
 	./orchid
 	./stem
-	./test
 )

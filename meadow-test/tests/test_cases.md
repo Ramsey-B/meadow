@@ -11,6 +11,20 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | ⬚      | Planned                 |
 | 💡     | Idea (needs refinement) |
 
+## Test Summary
+
+| Category      | Implemented | Planned | Total   |
+| ------------- | ----------- | ------- | ------- |
+| Smoke Tests   | 4           | 0       | 4       |
+| Orchid        | 35          | 10      | 45      |
+| Lotus         | 26          | 14      | 40      |
+| Ivy           | 10          | 32      | 42      |
+| Kafka         | 5           | 2       | 7       |
+| E2E Scenarios | 6           | 7       | 13      |
+| **Total**     | **86**      | **65**  | **151** |
+
+**Current Test Suite: 66 YAML test files, all passing**
+
 ---
 
 ## Smoke Tests
@@ -156,23 +170,23 @@ Quick validation that services are running and reachable.
 
 ### Actions (Transformations)
 
-| Status | Test Case                                                                        | Test File                                                                            |
-| ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| ✅     | List available actions                                                           | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                   |
-| ✅     | Get action output types                                                          | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                   |
-| ✅     | Inline mapping test                                                              | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                   |
-| ✅     | Text actions (to_lower, to_upper, trim)                                          | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)         |
-| ✅     | Text concat with separator                                                       | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)         |
-| ✅     | Text split to array                                                              | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)         |
-| ✅     | Number operations (add, multiply)                                                | [`integration/lotus_number_actions.yaml`](integration/lotus_number_actions.yaml)     |
-| ⬚      | Date parsing and formatting                                                      |                                                                                      |
-| ✅     | Coalesce (first non-null)                                                        | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml) |
-| ✅     | Default value fallback                                                           | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml) |
-| ✅     | Array operations (push, length, contains)                                        | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)       |
-| ✅     | Object operations (get, pick, omit, merge)                                       | [`integration/lotus_object_actions.yaml`](integration/lotus_object_actions.yaml)     |
-| ⬚      | Conditional (if-else)                                                            |                                                                                      |
-| ✅     | Regex match and replace                                                          | [`integration/lotus_regex_actions.yaml`](integration/lotus_regex_actions.yaml)       |
-| ✅     | Advanced text operations (contains, starts_with, ends_with, substring, index_of) | [`integration/lotus_text_advanced.yaml`](integration/lotus_text_advanced.yaml)       |
+| Status | Test Case                                                                        | Test File                                                                                  |
+| ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| ✅     | List available actions                                                           | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                         |
+| ✅     | Get action output types                                                          | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                         |
+| ✅     | Inline mapping test                                                              | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                         |
+| ✅     | Text actions (to_lower, to_upper, trim)                                          | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
+| ✅     | Text concat with separator                                                       | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
+| ✅     | Text split to array                                                              | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
+| ✅     | Number operations (add, multiply)                                                | [`integration/lotus_number_actions.yaml`](integration/lotus_number_actions.yaml)           |
+| ✅     | Date parsing and formatting                                                      | [`integration/lotus_date_actions.yaml`](integration/lotus_date_actions.yaml)               |
+| ✅     | Coalesce (first non-null)                                                        | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)       |
+| ✅     | Default value fallback                                                           | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)       |
+| ✅     | Array operations (push, length, contains)                                        | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)             |
+| ✅     | Object operations (get, pick, omit, merge)                                       | [`integration/lotus_object_actions.yaml`](integration/lotus_object_actions.yaml)           |
+| ✅     | Conditional (is_nil, is_empty, to_string)                                        | [`integration/lotus_conditional_actions.yaml`](integration/lotus_conditional_actions.yaml) |
+| ✅     | Regex match and replace                                                          | [`integration/lotus_regex_actions.yaml`](integration/lotus_regex_actions.yaml)             |
+| ✅     | Advanced text operations (contains, starts_with, ends_with, substring, index_of) | [`integration/lotus_text_advanced.yaml`](integration/lotus_text_advanced.yaml)             |
 
 ### Type Matching
 
@@ -253,13 +267,14 @@ Quick validation that services are running and reachable.
 
 ### Entity Type Management
 
-| Status | Test Case                         | Test File                                                                |
-| ------ | --------------------------------- | ------------------------------------------------------------------------ |
-| ✅     | Create entity type with schema    | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml) |
-| ✅     | List entity types                 | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml) |
-| ⬚      | Update entity type                |                                                                          |
-| ⬚      | Delete entity type                |                                                                          |
-| ⬚      | Entity type with merge strategies |                                                                          |
+| Status | Test Case                         | Test File                                                                        |
+| ------ | --------------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | Create entity type with schema    | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml)         |
+| ✅     | List entity types                 | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml)         |
+| ✅     | Get entity type by ID             | [`integration/ivy_entity_type_crud.yaml`](integration/ivy_entity_type_crud.yaml) |
+| ✅     | Delete entity type                | [`integration/ivy_entity_type_crud.yaml`](integration/ivy_entity_type_crud.yaml) |
+| ⬚      | Update entity type                |                                                                                  |
+| ⬚      | Entity type with merge strategies |                                                                                  |
 
 ### Relationship Type Management
 
@@ -368,14 +383,15 @@ Quick validation that services are running and reachable.
 
 ## Kafka Integration
 
-| Status | Test Case                  | Test File                                                        |
-| ------ | -------------------------- | ---------------------------------------------------------------- |
-| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml) |
-| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml) |
-| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml) |
-| ⬚      | Message with headers       |                                                                  |
-| ⬚      | Message key partitioning   |                                                                  |
-| ⬚      | Consumer group handling    |                                                                  |
+| Status | Test Case                  | Test File                                                          |
+| ------ | -------------------------- | ------------------------------------------------------------------ |
+| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)   |
+| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)   |
+| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml)   |
+| ✅     | Message with headers       | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml) |
+| ✅     | Filter by header value     | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml) |
+| ⬚      | Message key partitioning   |                                                                    |
+| ⬚      | Consumer group handling    |                                                                    |
 
 ---
 
@@ -383,32 +399,38 @@ Quick validation that services are running and reachable.
 
 Full pipeline tests that exercise multiple services.
 
-| Status | Test Case                                                                     | Test File                                                                    |
-| ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| ✅     | **Basic E2E**: Orchid + Lotus + Ivy integration test                          | [`scenarios/basic_user_flow.yaml`](scenarios/basic_user_flow.yaml)           |
-| ✅     | **Orchid Execution E2E**: Create plan → trigger execution → verify queued     | [`scenarios/orchid_execution_e2e.yaml`](scenarios/orchid_execution_e2e.yaml) |
-| ⬚      | **OKTA User Sync**: Auth → fetch users → transform → create Person entities   |                                                                              |
-| ⬚      | **MS Graph Sync**: Auth → fetch users/devices → transform → resolve entities  |                                                                              |
-| ⬚      | **Multi-Source Resolution**: OKTA + MS Graph → match by email → merged Person |                                                                              |
-| ⬚      | **Relationship Flow**: Users + Managers → reports_to relationships            |                                                                              |
-| ⬚      | **Device Ownership**: Users + Devices → owns relationships                    |                                                                              |
-| ⬚      | **Group Membership**: Users + Groups → member_of relationships                |                                                                              |
-| ⬚      | **Criteria Relationships**: Policy → has_access_to Windows devices            |                                                                              |
-| ⬚      | **Full CRUD Lifecycle**: Create → Update → Query → Delete                     |                                                                              |
-| ⬚      | **Error Recovery**: Partial failure → retry → complete                        |                                                                              |
+| Status | Test Case                                                                     | Test File                                                                                      |
+| ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ✅     | **Basic E2E**: Orchid + Lotus + Ivy integration test                          | [`scenarios/basic_user_flow.yaml`](scenarios/basic_user_flow.yaml)                             |
+| ✅     | **Orchid Execution E2E**: Create plan → trigger execution → verify Kafka      | [`scenarios/orchid_execution_e2e.yaml`](scenarios/orchid_execution_e2e.yaml)                   |
+| ✅     | **OKTA User Sync**: OAuth2 auth → fetch users → verify Kafka with user data   | [`integration/orchid_okta_users_sync.yaml`](integration/orchid_okta_users_sync.yaml)           |
+| ✅     | **MS Graph Users E2E**: OAuth2 → fetch users → verify Kafka response          | [`integration/orchid_ms_graph_users_e2e.yaml`](integration/orchid_ms_graph_users_e2e.yaml)     |
+| ✅     | **MS Graph Devices E2E**: OAuth2 → fetch devices → verify Kafka response      | [`integration/orchid_ms_graph_devices_e2e.yaml`](integration/orchid_ms_graph_devices_e2e.yaml) |
+| ✅     | **OAuth2 Full E2E**: Token endpoint → protected API → verify data             | [`integration/orchid_oauth2_e2e.yaml`](integration/orchid_oauth2_e2e.yaml)                     |
+| ⬚      | **Multi-Source Resolution**: OKTA + MS Graph → match by email → merged Person |                                                                                                |
+| ⬚      | **Relationship Flow**: Users + Managers → reports_to relationships            |                                                                                                |
+| ⬚      | **Device Ownership**: Users + Devices → owns relationships                    |                                                                                                |
+| ⬚      | **Group Membership**: Users + Groups → member_of relationships                |                                                                                                |
+| ⬚      | **Criteria Relationships**: Policy → has_access_to Windows devices            |                                                                                                |
+| ⬚      | **Full CRUD Lifecycle**: Create → Update → Query → Delete                     |                                                                                                |
+| ⬚      | **Error Recovery**: Partial failure → retry → complete                        |                                                                                                |
+
+**Note:** E2E tests include comprehensive Kafka message assertions that verify specific field values (user profiles, device properties, etc.) rather than just checking message existence.
 
 ---
 
 ## Test Infrastructure
 
-| Status | Test Case                              | Test File |
-| ------ | -------------------------------------- | --------- |
-| ⬚      | Mock API dynamic configuration         |           |
-| ⬚      | Test data fixtures/seeding             |           |
-| ⬚      | Test isolation (cleanup between tests) |           |
-| ⬚      | Parallel test execution                |           |
-| ⬚      | JUnit report generation                |           |
-| ⬚      | JSON report generation                 |           |
+| Status | Test Case                                | Test File / Location                                          |
+| ------ | ---------------------------------------- | ------------------------------------------------------------- |
+| ✅     | Mock API dynamic configuration           | `mocks/cmd/main.go` - `/api/test/configure` endpoint          |
+| ✅     | Test templates (reusable step sequences) | [`helpers/templates.yaml`](helpers/templates.yaml)            |
+| ✅     | Test isolation (cleanup between tests)   | `cleanup:` section in each test + tenant isolation            |
+| ✅     | Parallel test execution                  | `meadow-test run -p 4` (configurable parallelism)             |
+| ✅     | Kafka offset tracking                    | `get_kafka_offset` + `from_offset` for reliable message tests |
+| ⬚      | Test data fixtures/seeding               |                                                               |
+| ⬚      | JUnit report generation                  |                                                               |
+| ⬚      | JSON report generation                   |                                                               |
 
 ---
 
@@ -419,4 +441,31 @@ Full pipeline tests that exercise multiple services.
 - Tests in `scenarios/` test cross-service workflows
 - Benchmarks should be run separately, not in CI
 - Do NOT make tests that pass just to pass
-- If a test fails, ensure investigate why, do NOT just update to pass if the test is valid.
+- If a test fails, investigate why - do NOT just update to pass if the test is valid
+
+### Assertion Quality Guidelines
+
+All tests should include **meaningful assertions** that verify actual data values, not just existence checks:
+
+```yaml
+# ❌ Bad: Only checks existence
+- assert:
+    variable: result.email
+    not_empty: true
+
+# ✅ Good: Verifies actual data
+- assert:
+    variable: result.email
+    equals: "john.doe@example.com"
+```
+
+Tests with specific data assertions:
+
+- **Lotus transformation tests**: Verify exact output values (e.g., `to_lower` produces `"hello"`)
+- **Orchid execution tests**: Verify Kafka messages contain expected response data
+- **Ivy validation tests**: Verify specific validation error messages
+
+### Known Limitations
+
+- **Object keys/values order**: Go maps have non-deterministic iteration order, so `object_keys` and `object_values` assertions check presence, not position
+- **Regex extraction**: Returns full match including prefix (e.g., `@domain.com` not `domain.com`)

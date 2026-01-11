@@ -143,11 +143,11 @@ steps:
         status: 200
       save_as: subtract_result
 
-  # Verify the result exists (type comparison issues with numbers)
+  # Verify the subtraction result: 100 - 15 = 85
   - assert:
       variable: subtract_result.target_raw.final_price
-      not_empty: true
-      message: Subtraction result should exist
+      equals: 85
+      message: Subtraction should produce 100 - 15 = 85
 
   # Test number_abs (absolute value)
   - http_request:
@@ -184,11 +184,11 @@ steps:
         status: 200
       save_as: abs_result
 
-  # Verify the result exists
+  # Verify absolute value: |-42.5| = 42.5
   - assert:
       variable: abs_result.target_raw.result
-      not_empty: true
-      message: Absolute value result should exist
+      equals: 42.5
+      message: Absolute value of -42.5 should be 42.5
 
   # Test number_round
   - http_request:
@@ -225,8 +225,8 @@ steps:
         status: 200
       save_as: round_result
 
-  # Verify the result exists
+  # Verify round result: round(42.7) = 43
   - assert:
       variable: round_result.target_raw.result
-      not_empty: true
-      message: Round result should exist
+      equals: 43
+      message: Round of 42.7 should be 43

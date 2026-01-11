@@ -30,7 +30,10 @@
       "Bash(make test-meadow-p:*)",
       "Bash(for file in orchid_*.yaml)",
       "Bash(do sed -i '' '/- field: tenant_id/,/equals: \"\"{{test_tenant}}\"\"/d' \"$file\")",
-      "Bash(for file in /Users/ramseybland/Documents/code/go/meadow/meadow-test/tests/integration/orchid_*.yaml)"
+      "Bash(for file in /Users/ramseybland/Documents/code/go/meadow/meadow-test/tests/integration/orchid_*.yaml)",
+      "Bash(chmod:*)",
+      "Bash(GOWORK=off go build:*)",
+      "Bash(curl:*)"
     ]
   }
 }

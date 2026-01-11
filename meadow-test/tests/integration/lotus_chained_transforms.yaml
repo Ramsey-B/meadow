@@ -181,11 +181,16 @@ steps:
         status: 200
       save_as: numeric_chain_result
 
-  # Verify the numeric chain result exists
+  # Verify the numeric chain result
+  # Calculation: (price + (price * tax_rate)) * quantity
+  # = (19.99 + (19.99 * 0.08)) * 3
+  # = (19.99 + 1.5992) * 3
+  # = 21.5892 * 3
+  # = 64.7676, rounded = 65
   - assert:
       variable: numeric_chain_result.target_raw.total_price
-      not_empty: true
-      message: Chained numeric calculation should produce result
+      equals: 65
+      message: Chained calculation (19.99 + 8% tax) * 3, rounded = 65
 
   # Test mixed transformation chain: extract → concat → lowercase → trim
   - http_request:

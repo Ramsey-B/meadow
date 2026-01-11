@@ -1,8 +1,44 @@
 name: Orchid Basic Authentication
-description: Test plan execution with HTTP Basic authentication
+description: |
+  Test plan execution with HTTP Basic authentication.
+  Creates an integration with basic auth, triggers execution,
+  and validates the response contains the expected protected data.
 
 steps:
-  # Create integration
+  # ============================================================================
+  # SETUP: Configure mock endpoint that requires basic auth
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/basic-auth-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            authenticated: true
+            method: "basic"
+            user: "testuser"
+            data:
+              message: "Welcome to protected resource"
+              access_level: "admin"
+              items:
+                - id: "item-001"
+                  name: "Secret Item 1"
+                - id: "item-002"
+                  name: "Secret Item 2"
+      expect:
+        status: 200
+
+  # ============================================================================
+  # SETUP: Integration + Config with Basic Auth
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
@@ -29,76 +65,186 @@ steps:
         status: 201
       save_as: integration
 
-  # Create config with basic authentication
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
+  - assert:
+      variable: integration.description
+      equals: "Integration for testing basic authentication"
+      message: Integration description should match
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
         integration_id: "{{integration.id}}"
-        name: "Basic Auth Config {{uuid}}"
+        name: "Basic Auth Config"
         values:
-          base_url: "http://localhost:8090"
+          base_url: "{{mocks_url}}"
           username: "testuser"
           password: "testpass"
-        auth:
-          type: basic
-          username_field: username
-          password_field: password
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Verify config was created
   - assert:
       variable: config.id
       not_empty: true
-      message: Config with basic auth should be created
+      message: Config ID should be returned
 
-  # Create a plan that calls an authenticated endpoint
+  - assert:
+      variable: config.name
+      equals: "Basic Auth Config"
+      message: Config name should match
+
+  # ============================================================================
+  # CREATE PLAN
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "Basic Auth Plan {{uuid}}"
         key: "basic-auth-{{uuid}}"
-        description: "Plan that accesses endpoint with basic auth"
-        steps:
-          - id: fetch_protected
-            type: request
+        name: "Basic Auth Protected Fetch"
+        description: "Fetches protected resource with basic auth"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
             method: GET
-            path: /api/test/protected
-            pagination:
-              type: none
+          max_execution_seconds: 30
       expect:
         status: 201
       save_as: plan
 
-  # Verify plan was created
   - assert:
       variable: plan.key
       not_empty: true
-      message: Plan with basic auth should be created
+      message: Plan key should be returned
 
-  # Get the config to verify auth configuration
+  # Verify plan details
   - http_request:
       service: orchid
       method: GET
-      path: /api/v1/configs/{{config.id}}
+      path: /api/v1/plans/{{plan.key}}
       expect:
         status: 200
-      save_as: config_details
+      save_as: plan_details
 
-  # Verify config has correct structure
   - assert:
-      variable: config_details.id
+      variable: plan_details.name
+      equals: "Basic Auth Protected Fetch"
+      message: Plan name should match
+
+  - assert:
+      variable: plan_details.integration_id
+      equals: "{{integration.id}}"
+      message: Plan should reference correct integration
+
+  # ============================================================================
+  # EXECUTE AND VALIDATE
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for execution
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
+
+  - assert:
+      variable: executions
       not_empty: true
-      message: Config should be retrievable
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Execution should succeed with basic auth
+
+  # ============================================================================
+  # VALIDATE KAFKA MESSAGE: Verify protected data was received
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        # === Metadata validation ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request validation ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/mock/basic-auth-"
+        - field: status_code
+          equals: 200
+
+        # === Response data validation ===
+        - field: response_body[0].authenticated
+          equals: true
+        - field: response_body[0].method
+          equals: "basic"
+        - field: response_body[0].user
+          equals: "testuser"
+        - field: response_body[0].data.message
+          equals: "Welcome to protected resource"
+        - field: response_body[0].data.access_level
+          equals: "admin"
+        - field: response_body[0].data.items[0].id
+          equals: "item-001"
+        - field: response_body[0].data.items[0].name
+          equals: "Secret Item 1"
+        - field: response_body[0].data.items[1].id
+          equals: "item-002"
+        - field: response_body[0].data.items[1].name
+          equals: "Secret Item 2"
+      save_as: kafka_message
 
 cleanup:
-  # Clean up resources
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
   - http_request:
       service: orchid
       method: DELETE

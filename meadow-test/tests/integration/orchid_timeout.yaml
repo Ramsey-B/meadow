@@ -121,13 +121,15 @@ steps:
       not_empty: true
       message: Should have execution record for timeout test
 
-  # Check for timeout execution - may still be running due to long delay
-  # The request to /mock/slow-endpoint has 30s delay, step timeout is 5s
-  # Orchid should timeout the request and record it
+  # Check for timeout execution - the request has 30s delay but step timeout is 5s
+  # Orchid should timeout the request and mark execution as failed/timed out
   - assert:
-      variable: executions
-      not_empty: true
-      message: Should have execution record for timeout test
+      variable: executions[0].plan_key
+      equals: "{{plan.key}}"
+      message: Execution should reference correct plan
+
+  # The execution should either be running (waiting for timeout) or failed
+  # We can't assert specific status since it depends on timing
 
 cleanup:
   - http_request:

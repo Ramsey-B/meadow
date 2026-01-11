@@ -45,11 +45,21 @@ steps:
         status: 200
       save_as: push_result
 
-  # Verify the array was expanded
+  # Verify the array was expanded with all three values
   - assert:
-      variable: push_result.target_raw.tags
-      not_empty: true
-      message: Array should contain pushed value
+      variable: push_result.target_raw.tags[0]
+      equals: "backend"
+      message: First tag should be preserved
+
+  - assert:
+      variable: push_result.target_raw.tags[1]
+      equals: "api"
+      message: Second tag should be preserved
+
+  - assert:
+      variable: push_result.target_raw.tags[2]
+      equals: "production"
+      message: Pushed tag should be added at the end
 
   # Test array_length - get array size
   - http_request:
@@ -86,11 +96,11 @@ steps:
         status: 200
       save_as: length_result
 
-  # Verify the length
+  # Verify the length is exactly 3
   - assert:
       variable: length_result.target_raw.count
-      not_empty: true
-      message: Array length should be returned
+      equals: 3
+      message: Array length should be 3 for [apple, banana, cherry]
 
   # Test array_contains - check if array contains value
   - http_request:
@@ -135,11 +145,11 @@ steps:
         status: 200
       save_as: contains_result
 
-  # Verify contains result
+  # Verify contains returns true for "admin" in roles array
   - assert:
       variable: contains_result.target_raw.is_admin
-      not_empty: true
-      message: Contains result should be returned
+      equals: true
+      message: Contains should return true when checking for "admin" in ["admin", "user", "moderator"]
 
   # Test array_reverse - reverse array order
   - http_request:
@@ -176,11 +186,21 @@ steps:
         status: 200
       save_as: reverse_result
 
-  # Verify reverse result
+  # Verify reverse result [1,2,3,4,5] -> [5,4,3,2,1]
   - assert:
-      variable: reverse_result.target_raw.reversed
-      not_empty: true
-      message: Reversed array should be returned
+      variable: reverse_result.target_raw.reversed[0]
+      equals: 5
+      message: First element of reversed array should be 5
+
+  - assert:
+      variable: reverse_result.target_raw.reversed[1]
+      equals: 4
+      message: Second element of reversed array should be 4
+
+  - assert:
+      variable: reverse_result.target_raw.reversed[4]
+      equals: 1
+      message: Last element of reversed array should be 1
 
   # Test array_distinct - remove duplicates
   - http_request:
@@ -217,8 +237,23 @@ steps:
         status: 200
       save_as: distinct_result
 
-  # Verify distinct result
+  # Verify distinct removes duplicates from ["a", "b", "a", "c", "b", "d"] -> ["a", "b", "c", "d"]
   - assert:
-      variable: distinct_result.target_raw.unique
-      not_empty: true
-      message: Distinct array should be returned
+      variable: distinct_result.target_raw.unique[0]
+      equals: "a"
+      message: First unique element should be "a"
+
+  - assert:
+      variable: distinct_result.target_raw.unique[1]
+      equals: "b"
+      message: Second unique element should be "b"
+
+  - assert:
+      variable: distinct_result.target_raw.unique[2]
+      equals: "c"
+      message: Third unique element should be "c"
+
+  - assert:
+      variable: distinct_result.target_raw.unique[3]
+      equals: "d"
+      message: Fourth unique element should be "d"

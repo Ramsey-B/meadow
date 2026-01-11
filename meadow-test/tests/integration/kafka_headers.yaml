@@ -1,0 +1,125 @@
+name: Kafka Message Headers Test
+description: |
+  Tests Kafka message publishing and consuming with headers:
+  - Publish messages with custom headers
+  - Consume and verify header values
+  - Filter messages by header content
+
+steps:
+  # Get current offset before publishing - use existing topic
+  - get_kafka_offset:
+      topic: meadow-test-pubsub
+      save_as: kafka_offset_before
+
+  - set_variable:
+      name: message_id
+      value: "msg-{{uuid}}"
+
+  # ============================================================================
+  # TEST 1: Publish message with multiple headers
+  # ============================================================================
+  - publish_kafka:
+      topic: meadow-test-pubsub
+      key: "{{message_id}}"
+      value:
+        event_type: "user.created"
+        user_id: "user-12345"
+        email: "test@example.com"
+        timestamp: "{{timestamp}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+        source_system: "test-framework"
+        correlation_id: "{{message_id}}"
+        priority: "high"
+        version: "1.0"
+
+  # Wait for message to be available
+  - wait:
+      duration: 2s
+      reason: Allow message to propagate
+
+  # ============================================================================
+  # TEST 2: Consume and verify message headers
+  # ============================================================================
+  - assert_kafka_message:
+      topic: meadow-test-pubsub
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        key: "{{message_id}}"
+      assertions:
+        # Verify headers
+        - header: content_type
+          equals: "application/json"
+        - header: source_system
+          equals: "test-framework"
+        - header: correlation_id
+          equals: "{{message_id}}"
+        - header: priority
+          equals: "high"
+        - header: version
+          equals: "1.0"
+        # Verify body
+        - field: event_type
+          equals: "user.created"
+        - field: user_id
+          equals: "user-12345"
+        - field: email
+          equals: "test@example.com"
+      save_as: consumed_message
+
+  # ============================================================================
+  # TEST 3: Publish second message with different headers
+  # ============================================================================
+  - set_variable:
+      name: message_id_2
+      value: "msg-{{uuid}}"
+
+  - publish_kafka:
+      topic: meadow-test-pubsub
+      key: "{{message_id_2}}"
+      value:
+        event_type: "user.updated"
+        user_id: "user-67890"
+        changes:
+          - field: "email"
+            old_value: "old@example.com"
+            new_value: "new@example.com"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+        source_system: "test-framework"
+        correlation_id: "{{message_id_2}}"
+        priority: "normal"
+        version: "1.0"
+        operation: "update"
+
+  - wait:
+      duration: 2s
+      reason: Allow message to propagate
+
+  # ============================================================================
+  # TEST 4: Filter by header value (operation header)
+  # ============================================================================
+  - assert_kafka_message:
+      topic: meadow-test-pubsub
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          operation: "update"
+      assertions:
+        - field: event_type
+          equals: "user.updated"
+        - field: user_id
+          equals: "user-67890"
+        - header: priority
+          equals: "normal"
+        - header: operation
+          equals: "update"
+        - header: correlation_id
+          equals: "{{message_id_2}}"
+      save_as: filtered_message
+
+cleanup: []

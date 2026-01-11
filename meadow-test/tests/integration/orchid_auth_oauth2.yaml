@@ -1,23 +1,26 @@
 name: Orchid OAuth2 Client Credentials
-description: Test plan execution with OAuth2 client credentials flow
+description: |
+  Test plan execution with OAuth2 client credentials flow.
+  Uses the mock OKTA OAuth2 endpoint to obtain a token,
+  then fetches protected user data and validates the response.
 
 steps:
-  # Create integration for OAuth2
+  # ============================================================================
+  # SETUP: Integration with OAuth2 Client Credentials
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/integrations
       body:
-        name: "OAuth2 Integration {{uuid}}"
-        description: "Integration for testing OAuth2 client credentials"
+        name: "OAuth2 CC Test {{uuid}}"
+        description: "Integration for OAuth2 client credentials flow testing"
         config_schema:
-          name: "OAuth2 Config"
+          name: "OAuth2 CC Config"
           schema:
             type: object
             properties:
               base_url:
-                type: string
-              token_url:
                 type: string
               client_id:
                 type: string
@@ -27,91 +30,251 @@ steps:
                 type: string
             required:
               - base_url
-              - token_url
               - client_id
               - client_secret
       expect:
         status: 201
       save_as: integration
 
-  # Create config with OAuth2 client credentials
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
+  - assert:
+      variable: integration.description
+      equals: "Integration for OAuth2 client credentials flow testing"
+      message: Integration description should match
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
         integration_id: "{{integration.id}}"
-        name: "OAuth2 Config {{uuid}}"
+        name: "OAuth2 CC Config"
         values:
-          base_url: "http://localhost:8090"
-          token_url: "http://localhost:8090/oauth/token"
-          client_id: "test-client-id"
-          client_secret: "test-client-secret"
-          scope: "read:users write:users"
-        auth:
-          type: oauth2_client_credentials
-          token_url_field: token_url
-          client_id_field: client_id
-          client_secret_field: client_secret
-          scope_field: scope
+          base_url: "{{mocks_url}}"
+          client_id: "test-oauth2-client"
+          client_secret: "test-oauth2-secret"
+          scope: "okta.users.read"
+        enabled: true
       expect:
         status: 201
       save_as: config
 
-  # Verify config was created
   - assert:
       variable: config.id
       not_empty: true
-      message: Config with OAuth2 should be created
+      message: Config ID should be returned
 
-  # Create a plan that uses OAuth2 auth
+  - assert:
+      variable: config.name
+      equals: "OAuth2 CC Config"
+      message: Config name should match
+
+  # ============================================================================
+  # CREATE AUTH FLOW: OAuth2 Client Credentials
+  # ============================================================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/auth-flows
+      body:
+        integration_id: "{{integration.id}}"
+        name: "OKTA OAuth2 CC Flow"
+        plan_definition:
+          url: "{{ config.base_url }}/oauth2/v1/token"
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "grant_type=client_credentials&client_id={{ config.client_id }}&client_secret={{ config.client_secret }}&scope={{ config.scope }}"
+        token_path: "response.body.access_token"
+        expires_in_path: "response.body.expires_in"
+        header_name: "Authorization"
+        header_format: "Bearer {token}"
+        skew_seconds: 30
+      expect:
+        status: 201
+      save_as: auth_flow
+
+  - assert:
+      variable: auth_flow.id
+      not_empty: true
+      message: Auth flow ID should be returned
+
+  - assert:
+      variable: auth_flow.name
+      equals: "OKTA OAuth2 CC Flow"
+      message: Auth flow name should match
+
+  # ============================================================================
+  # CREATE PLAN: Fetch OKTA users with OAuth2
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
         integration_id: "{{integration.id}}"
-        name: "OAuth2 Plan {{uuid}}"
-        key: "oauth2-plan-{{uuid}}"
-        description: "Plan that uses OAuth2 client credentials"
-        steps:
-          - id: fetch_with_oauth
-            type: request
+        key: "oauth2-users-{{uuid}}"
+        name: "OAuth2 Fetch Users"
+        description: "Fetches users using OAuth2 client credentials"
+        enabled: true
+        plan_definition:
+          step:
+            auth_flow_id: "{{auth_flow.id}}"
+            url: "{{ config.base_url }}/api/v1/users"
             method: GET
-            path: /api/test/oauth-protected
-            pagination:
-              type: none
+            headers:
+              Authorization: "{{ auth.headers.Authorization }}"
+          max_execution_seconds: 60
       expect:
         status: 201
       save_as: plan
 
-  # Verify plan was created
   - assert:
       variable: plan.key
       not_empty: true
-      message: Plan with OAuth2 should be created
+      message: Plan key should be returned
 
-  # Get the config to verify OAuth2 configuration
+  # Verify plan details
   - http_request:
       service: orchid
       method: GET
-      path: /api/v1/configs/{{config.id}}
+      path: /api/v1/plans/{{plan.key}}
       expect:
         status: 200
-      save_as: config_details
+      save_as: plan_details
 
-  # Verify config has correct structure
   - assert:
-      variable: config_details.id
+      variable: plan_details.name
+      equals: "OAuth2 Fetch Users"
+      message: Plan name should match
+
+  - assert:
+      variable: plan_details.integration_id
+      equals: "{{integration.id}}"
+      message: Plan should reference correct integration
+
+  # ============================================================================
+  # EXECUTE
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
+
+  # Wait for execution
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
+
+  - assert:
+      variable: executions
       not_empty: true
-      message: OAuth2 config should be retrievable
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: OAuth2 authenticated execution should succeed
+
+  # ============================================================================
+  # VALIDATE KAFKA: Verify OKTA users fetched with OAuth2
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 60s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "/api/v1/users"
+      assertions:
+        # === Metadata ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/api/v1/users"
+        - field: status_code
+          equals: 200
+
+        # === Response: OKTA users (from mock) ===
+        # First user: John Doe (Engineering, Senior Developer)
+        - field: response_body[0].id
+          equals: "okta-user-001"
+        - field: response_body[0].status
+          equals: "ACTIVE"
+        - field: response_body[0].profile.firstName
+          equals: "John"
+        - field: response_body[0].profile.lastName
+          equals: "Doe"
+        - field: response_body[0].profile.email
+          equals: "john.doe@acme.com"
+        - field: response_body[0].profile.department
+          equals: "Engineering"
+        - field: response_body[0].profile.title
+          equals: "Senior Developer"
+
+        # Second user: Jane Smith (Marketing)
+        - field: response_body[1].id
+          equals: "okta-user-002"
+        - field: response_body[1].status
+          equals: "ACTIVE"
+        - field: response_body[1].profile.firstName
+          equals: "Jane"
+        - field: response_body[1].profile.lastName
+          equals: "Smith"
+        - field: response_body[1].profile.email
+          equals: "jane.smith@acme.com"
+        - field: response_body[1].profile.department
+          equals: "Marketing"
+
+        # Third user: Bob Wilson (Sales)
+        - field: response_body[2].id
+          equals: "okta-user-003"
+        - field: response_body[2].profile.firstName
+          equals: "Bob"
+        - field: response_body[2].profile.department
+          equals: "Sales"
+      save_as: kafka_message
 
 cleanup:
-  # Clean up resources
   - http_request:
       service: orchid
       method: DELETE
       path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/auth-flows/{{auth_flow.id}}
 
   - http_request:
       service: orchid

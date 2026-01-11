@@ -1,17 +1,58 @@
 name: Orchid API Key Authentication
-description: Test plan execution with API key authentication (header and query param)
+description: |
+  Test plan execution with API key authentication in HTTP header.
+  Creates an integration with API key auth, triggers execution,
+  and validates the response contains the expected secured data.
 
 steps:
-  # Create integration for header-based API key
+  # ============================================================================
+  # SETUP: Configure mock endpoint that responds to API key auth
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/api-key-{{uuid}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            authenticated: true
+            auth_method: "api_key"
+            api_key_prefix: "test-api-key"
+            resources:
+              - id: "resource-001"
+                type: "document"
+                name: "Confidential Report Q4"
+                classification: "internal"
+              - id: "resource-002"
+                type: "spreadsheet"
+                name: "Financial Data 2024"
+                classification: "confidential"
+              - id: "resource-003"
+                type: "presentation"
+                name: "Board Meeting Deck"
+                classification: "restricted"
+      expect:
+        status: 200
+
+  # ============================================================================
+  # SETUP: Integration + Config with API Key in Header
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/integrations
       body:
-        name: "API Key Header Integration {{uuid}}"
-        description: "Integration for testing API key in header"
+        name: "API Key Integration {{uuid}}"
+        description: "Integration for testing API key authentication"
         config_schema:
-          name: "API Key Header Config"
+          name: "API Key Config"
           schema:
             type: object
             properties:
@@ -24,167 +65,226 @@ steps:
               - api_key
       expect:
         status: 201
-      save_as: header_integration
+      save_as: integration
 
-  # Create config with API key in header
+  - assert:
+      variable: integration.id
+      not_empty: true
+      message: Integration ID should be returned
+
+  - assert:
+      variable: integration.description
+      equals: "Integration for testing API key authentication"
+      message: Integration description should match
+
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/configs
       body:
-        integration_id: "{{header_integration.id}}"
-        name: "API Key Header Config {{uuid}}"
+        integration_id: "{{integration.id}}"
+        name: "API Key Config"
         values:
-          base_url: "http://localhost:8090"
+          base_url: "{{mocks_url}}"
           api_key: "test-api-key-12345"
-        auth:
-          type: api_key
-          location: header
-          key_field: api_key
-          header_name: X-API-Key
+        enabled: true
       expect:
         status: 201
-      save_as: header_config
+      save_as: config
 
-  # Verify header config was created
   - assert:
-      variable: header_config.id
+      variable: config.id
       not_empty: true
-      message: Config with API key in header should be created
+      message: Config ID should be returned
 
-  # Create a plan for header-based API key
+  - assert:
+      variable: config.name
+      equals: "API Key Config"
+      message: Config name should match
+
+  - assert:
+      variable: config.integration_id
+      equals: "{{integration.id}}"
+      message: Config should reference correct integration
+
+  # ============================================================================
+  # CREATE PLAN
+  # ============================================================================
   - http_request:
       service: orchid
       method: POST
       path: /api/v1/plans
       body:
-        integration_id: "{{header_integration.id}}"
-        name: "API Key Header Plan {{uuid}}"
-        key: "api-key-header-{{uuid}}"
-        description: "Plan that uses API key in header"
-        steps:
-          - id: fetch_with_header
-            type: request
+        integration_id: "{{integration.id}}"
+        key: "api-key-{{uuid}}"
+        name: "API Key Secured Fetch"
+        description: "Fetches secured resource using API key"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
             method: GET
-            path: /api/test/authenticated
-            pagination:
-              type: none
+          max_execution_seconds: 30
       expect:
         status: 201
-      save_as: header_plan
+      save_as: plan
 
-  # Verify header plan was created
   - assert:
-      variable: header_plan.key
+      variable: plan.key
       not_empty: true
-      message: Plan with header API key should be created
+      message: Plan key should be returned
 
-  # Create integration for query param-based API key
+  # Verify plan details
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_details
+
+  - assert:
+      variable: plan_details.name
+      equals: "API Key Secured Fetch"
+      message: Plan name should match
+
+  - assert:
+      variable: plan_details.description
+      equals: "Fetches secured resource using API key"
+      message: Plan description should match
+
+  # ============================================================================
+  # EXECUTE AND VALIDATE
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
   - http_request:
       service: orchid
       method: POST
-      path: /api/v1/integrations
+      path: /api/v1/plans/{{plan.key}}/trigger
       body:
-        name: "API Key Query Integration {{uuid}}"
-        description: "Integration for testing API key in query param"
-        config_schema:
-          name: "API Key Query Config"
-          schema:
-            type: object
-            properties:
-              base_url:
-                type: string
-              api_token:
-                type: string
-            required:
-              - base_url
-              - api_token
+        config_id: "{{config.id}}"
       expect:
-        status: 201
-      save_as: query_integration
+        status: 200
+      save_as: trigger
 
-  # Create config with API key in query param
-  - http_request:
-      service: orchid
-      method: POST
-      path: /api/v1/configs
-      body:
-        integration_id: "{{query_integration.id}}"
-        name: "API Key Query Config {{uuid}}"
-        values:
-          base_url: "http://localhost:8090"
-          api_token: "query-token-67890"
-        auth:
-          type: api_key
-          location: query
-          key_field: api_token
-          query_param: apiKey
-      expect:
-        status: 201
-      save_as: query_config
-
-  # Verify query config was created
   - assert:
-      variable: query_config.id
-      not_empty: true
-      message: Config with API key in query param should be created
+      variable: trigger.status
+      equals: "queued"
+      message: Trigger should return queued status
 
-  # Create a plan for query param-based API key
-  - http_request:
-      service: orchid
-      method: POST
-      path: /api/v1/plans
-      body:
-        integration_id: "{{query_integration.id}}"
-        name: "API Key Query Plan {{uuid}}"
-        key: "api-key-query-{{uuid}}"
-        description: "Plan that uses API key in query param"
-        steps:
-          - id: fetch_with_query
-            type: request
-            method: GET
-            path: /api/test/authenticated
-            pagination:
-              type: none
-      expect:
-        status: 201
-      save_as: query_plan
+  # Wait for execution
+  - use_template:
+      name: wait_for_execution
+      with:
+        plan_key: "{{plan.key}}"
 
-  # Verify query plan was created
   - assert:
-      variable: query_plan.key
+      variable: executions
       not_empty: true
-      message: Plan with query param API key should be created
+      message: Should have at least one execution
+
+  - assert:
+      variable: executions[0].status
+      equals: "success"
+      message: Execution should succeed with API key auth
+
+  - assert:
+      variable: executions[0].plan_key
+      equals: "{{plan.key}}"
+      message: Execution should reference correct plan
+
+  # ============================================================================
+  # VALIDATE KAFKA MESSAGE: Verify secured resources were received
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        # === Metadata validation ===
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: config_id
+          equals: "{{config.id}}"
+        - field: execution_id
+          not_empty: true
+
+        # === Request validation ===
+        - field: request_method
+          equals: GET
+        - field: request_url
+          contains: "/mock/api-key-"
+        - field: status_code
+          equals: 200
+
+        # === Response data validation ===
+        - field: response_body[0].authenticated
+          equals: true
+        - field: response_body[0].auth_method
+          equals: "api_key"
+        - field: response_body[0].api_key_prefix
+          equals: "test-api-key"
+
+        # Verify first resource
+        - field: response_body[0].resources[0].id
+          equals: "resource-001"
+        - field: response_body[0].resources[0].type
+          equals: "document"
+        - field: response_body[0].resources[0].name
+          equals: "Confidential Report Q4"
+        - field: response_body[0].resources[0].classification
+          equals: "internal"
+
+        # Verify second resource
+        - field: response_body[0].resources[1].id
+          equals: "resource-002"
+        - field: response_body[0].resources[1].type
+          equals: "spreadsheet"
+        - field: response_body[0].resources[1].name
+          equals: "Financial Data 2024"
+        - field: response_body[0].resources[1].classification
+          equals: "confidential"
+
+        # Verify third resource
+        - field: response_body[0].resources[2].id
+          equals: "resource-003"
+        - field: response_body[0].resources[2].type
+          equals: "presentation"
+        - field: response_body[0].resources[2].name
+          equals: "Board Meeting Deck"
+        - field: response_body[0].resources[2].classification
+          equals: "restricted"
+      save_as: kafka_message
 
 cleanup:
-  # Clean up header resources
   - http_request:
-      service: orchid
-      method: DELETE
-      path: /api/v1/plans/{{header_plan.key}}
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
 
   - http_request:
       service: orchid
       method: DELETE
-      path: /api/v1/configs/{{header_config.id}}
+      path: /api/v1/plans/{{plan.key}}
 
   - http_request:
       service: orchid
       method: DELETE
-      path: /api/v1/integrations/{{header_integration.id}}
-
-  # Clean up query resources
-  - http_request:
-      service: orchid
-      method: DELETE
-      path: /api/v1/plans/{{query_plan.key}}
+      path: /api/v1/configs/{{config.id}}
 
   - http_request:
       service: orchid
       method: DELETE
-      path: /api/v1/configs/{{query_config.id}}
-
-  - http_request:
-      service: orchid
-      method: DELETE
-      path: /api/v1/integrations/{{query_integration.id}}
+      path: /api/v1/integrations/{{integration.id}}

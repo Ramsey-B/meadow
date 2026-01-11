@@ -212,3 +212,19 @@ steps:
       expect:
         status: 200
       save_as: split_result
+
+  # Verify the split result: "apple,banana,cherry" -> ["apple", "banana", "cherry"]
+  - assert:
+      variable: split_result.target_raw.result[0]
+      equals: "apple"
+      message: First split element should be "apple"
+
+  - assert:
+      variable: split_result.target_raw.result[1]
+      equals: "banana"
+      message: Second split element should be "banana"
+
+  - assert:
+      variable: split_result.target_raw.result[2]
+      equals: "cherry"
+      message: Third split element should be "cherry"

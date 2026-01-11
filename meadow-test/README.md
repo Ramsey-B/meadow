@@ -7,6 +7,7 @@ Meadow Test allows you to write integration and end-to-end tests using simple YA
 ## Why Meadow Test?
 
 **Before** (Go code):
+
 ```go
 func TestUserSync(t *testing.T) {
     // 50+ lines of setup code
@@ -26,6 +27,7 @@ func TestUserSync(t *testing.T) {
 ```
 
 **After** (YAML):
+
 ```yaml
 name: User Sync Test
 steps:
@@ -64,6 +66,7 @@ go install ./cmd/meadow-test
 ```
 
 Or use the Makefile from the meadow root:
+
 ```bash
 make install-meadow-test
 ```
@@ -125,6 +128,7 @@ meadow-test run --dry-run tests/
 ### Create Your First Test
 
 Create `my_test.yaml`:
+
 ```yaml
 name: My First Test
 description: Test Kafka message publishing
@@ -147,6 +151,7 @@ steps:
 ```
 
 Run it:
+
 ```bash
 meadow-test run my_test.yaml
 ```
@@ -178,6 +183,7 @@ cleanup:
 Use `{{variable}}` syntax to reference:
 
 - **Saved variables** (from `save_as`):
+
 ```yaml
 - create_plan:
     key: my-plan
@@ -188,6 +194,7 @@ Use `{{variable}}` syntax to reference:
 ```
 
 - **Built-in variables**:
+
   - `{{orchid_url}}` - Orchid service URL
   - `{{lotus_url}}` - Lotus service URL
   - `{{ivy_url}}` - Ivy service URL
@@ -198,6 +205,7 @@ Use `{{variable}}` syntax to reference:
   - `{{uuid}}` - Generated UUID
 
 - **Environment variables**:
+
 ```yaml
 - assert:
     variable: MY_ENV_VAR
@@ -219,6 +227,7 @@ Use `{{variable}}` syntax to reference:
 #### `assert` - Make assertions
 
 Condition-based:
+
 ```yaml
 - assert:
     condition: "{{execution_id}} != ''"
@@ -226,6 +235,7 @@ Condition-based:
 ```
 
 Variable-based:
+
 ```yaml
 - assert:
     variable: execution_status
@@ -237,7 +247,7 @@ Variable-based:
 
 ```yaml
 - http_request:
-    service: orchid  # or lotus, ivy, mocks, or full URL
+    service: orchid # or lotus, ivy, mocks, or full URL
     method: GET
     path: /api/v1/plans/{{plan_id}}
     headers:
@@ -273,7 +283,7 @@ Variable-based:
 - assert_kafka_message:
     topic: mapped-data
     timeout: 30s
-    consume_from: latest  # or earliest
+    consume_from: latest # or earliest
     assertions:
       - header: tenant_id
         equals: "{{test_tenant}}"
@@ -462,16 +472,16 @@ meadow-test run --tenant my-tenant tests/
 
 ### Configuration Flags
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--orchid-url` | `http://localhost:8080` | Orchid service URL |
-| `--lotus-url` | `http://localhost:8081` | Lotus service URL |
-| `--ivy-url` | `http://localhost:8082` | Ivy service URL |
-| `--mocks-url` | `http://localhost:9000` | Mock API service URL |
-| `--kafka-brokers` | `localhost:9092` | Kafka brokers (comma-separated) |
-| `--tenant` | `test-tenant` | Test tenant ID |
-| `-v, --verbose` | `false` | Verbose output |
-| `--dry-run` | `false` | Validate without executing |
+| Flag              | Default                 | Description                     |
+| ----------------- | ----------------------- | ------------------------------- |
+| `--orchid-url`    | `http://localhost:8080` | Orchid service URL              |
+| `--lotus-url`     | `http://localhost:8081` | Lotus service URL               |
+| `--ivy-url`       | `http://localhost:8082` | Ivy service URL                 |
+| `--mocks-url`     | `http://localhost:9000` | Mock API service URL            |
+| `--kafka-brokers` | `localhost:9092`        | Kafka brokers (comma-separated) |
+| `--tenant`        | `test-tenant`           | Test tenant ID                  |
+| `-v, --verbose`   | `false`                 | Verbose output                  |
+| `--dry-run`       | `false`                 | Validate without executing      |
 
 ## Example Tests
 
@@ -644,7 +654,7 @@ Always use `{{uuid}}` or `{{timestamp}}` for unique identifiers:
 
 ```yaml
 - create_plan:
-    key: my-plan-{{uuid}}  # ✅ Unique
+    key: my-plan-{{uuid}} # ✅ Unique
     # NOT: key: my-plan     # ❌ Conflicts if run multiple times
 ```
 
@@ -680,6 +690,7 @@ meadow-test run -v tests/my_test.yaml
 ```
 
 Shows:
+
 - Variable interpolation
 - HTTP requests/responses
 - Kafka messages
@@ -689,11 +700,85 @@ Shows:
 
 Begin with integration tests for individual services, then combine into end-to-end scenarios.
 
+### 6. Write Meaningful Assertions
+
+**Don't** just check if values exist - verify they match expected data:
+
+```yaml
+# ❌ Bad: Only checks existence
+- assert:
+    variable: result.email
+    not_empty: true
+    message: Email should exist
+
+# ✅ Good: Verifies actual data
+- assert:
+    variable: result.email
+    equals: "john.doe@example.com"
+    message: Email should match expected value
+```
+
+**Do** verify specific values, especially for:
+
+- Transformed data (lowercase, trimmed, concatenated)
+- Mapped fields (source → target)
+- Computed values (calculations, counts)
+- API response bodies (user data, error messages)
+
+```yaml
+# Verify transformation results
+- assert:
+    variable: lowercase_result.target_raw.email
+    equals: "john.doe@example.com"
+    message: Email should be lowercased from JOHN.DOE@EXAMPLE.COM
+
+# Verify array operations
+- assert:
+    variable: length_result.target_raw.count
+    equals: 3
+    message: Array length should be 3
+
+# Verify Kafka message data
+- assert_kafka_message:
+    topic: api-responses
+    assertions:
+      - field: response_body[0].profile.firstName
+        equals: "John"
+      - field: response_body[0].profile.department
+        equals: "Engineering"
+```
+
+### 7. Use get_kafka_offset for Reliable Kafka Tests
+
+Always capture the offset before triggering an action:
+
+```yaml
+# Capture offset BEFORE the action
+- get_kafka_offset:
+    topic: api-responses
+    save_as: kafka_offset_before
+
+# Trigger the action that produces messages
+- http_request:
+    service: orchid
+    method: POST
+    path: /api/v1/plans/{{plan.key}}/trigger
+
+# Consume from the saved offset
+- assert_kafka_message:
+    topic: api-responses
+    from_offset: "{{kafka_offset_before}}"
+    filter:
+      headers:
+        plan_key: "{{plan.key}}"
+```
+
 ## Troubleshooting
 
 ### Test Fails: "Connection refused"
 
 Services aren't running. Start them:
+
 ```bash
 cd /path/to/meadow
 docker-compose up -d

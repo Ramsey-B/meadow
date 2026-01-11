@@ -219,21 +219,24 @@ func (r *Repository) Update(ctx context.Context, tenantID string, id string, req
 
 	sb := sqlbuilder.NewUpdateBuilder()
 	sb.Update(tableName)
-	sb.Set(sb.Assign("updated_at", time.Now()))
+
+	// Build all assignments
+	assignments := []string{sb.Assign("updated_at", time.Now())}
 
 	if req.Name != nil {
-		sb.Set(sb.Assign("name", *req.Name))
+		assignments = append(assignments, sb.Assign("name", *req.Name))
 	}
 	if req.Description != nil {
-		sb.Set(sb.Assign("description", *req.Description))
+		assignments = append(assignments, sb.Assign("description", *req.Description))
 	}
 	if req.Cardinality != nil {
-		sb.Set(sb.Assign("cardinality", *req.Cardinality))
+		assignments = append(assignments, sb.Assign("cardinality", *req.Cardinality))
 	}
 	if req.Schema != nil {
-		sb.Set(sb.Assign("properties", *req.Schema))
+		assignments = append(assignments, sb.Assign("properties", *req.Schema))
 	}
 
+	sb.Set(assignments...)
 	sb.Where(
 		sb.Equal("id", id),
 		sb.Equal("tenant_id", tenantID),
