@@ -1,0 +1,228 @@
+name: Ivy Match Rules with Normalizers
+description: Tests match rules that use normalizers for field comparison
+
+setup:
+  # Create entity type for normalizer testing
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "normalizertest{{timestamp}}"
+        name: "Normalizer Test Entity"
+        description: "Entity type for testing normalizers"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            phone:
+              type: string
+            name:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+steps:
+  # ============================================
+  # Test 1: Create match rule with email normalizer
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "normalizertest{{timestamp}}"
+        name: "Email Match with Normalizer"
+        description: "Match emails after normalizing (lowercase, trim)"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            normalizer: "nemail"
+      expect:
+        status: 201
+      save_as: email_rule
+
+  - assert:
+      variable: email_rule.id
+      not_empty: true
+      message: Email rule ID should be returned
+
+  - assert:
+      variable: email_rule.conditions[0].normalizer
+      equals: "nemail"
+      message: Email normalizer should be set
+
+  # ============================================
+  # Test 2: Create match rule with phone normalizer
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "normalizertest{{timestamp}}"
+        name: "Phone Match with Normalizer"
+        description: "Match phone numbers after normalizing (digits only)"
+        priority: 80
+        is_active: true
+        score_weight: 0.9
+        conditions:
+          - field: "phone"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            normalizer: "nphone"
+      expect:
+        status: 201
+      save_as: phone_rule
+
+  - assert:
+      variable: phone_rule.id
+      not_empty: true
+      message: Phone rule ID should be returned
+
+  - assert:
+      variable: phone_rule.conditions[0].normalizer
+      equals: "nphone"
+      message: Phone normalizer should be set
+
+  # ============================================
+  # Test 3: Create match rule with name normalizer
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "normalizertest{{timestamp}}"
+        name: "Name Match with Normalizer"
+        description: "Match names after normalizing (lowercase, remove punctuation)"
+        priority: 60
+        is_active: true
+        score_weight: 0.8
+        conditions:
+          - field: "name"
+            match_type: "fuzzy"
+            weight: 1.0
+            required: true
+            threshold: 0.85
+            normalizer: "nname"
+      expect:
+        status: 201
+      save_as: name_rule
+
+  - assert:
+      variable: name_rule.id
+      not_empty: true
+      message: Name rule ID should be returned
+
+  - assert:
+      variable: name_rule.conditions[0].normalizer
+      equals: "nname"
+      message: Name normalizer should be set
+
+  - assert:
+      variable: name_rule.conditions[0].match_type
+      equals: "fuzzy"
+      message: Match type should be fuzzy
+
+  # ============================================
+  # Test 4: Create match rule with multiple normalizers
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "normalizertest{{timestamp}}"
+        name: "Multi-Field Match with Normalizers"
+        description: "Match multiple fields each with their own normalizer"
+        priority: 40
+        is_active: true
+        score_weight: 0.7
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 0.5
+            required: true
+            normalizer: "nemail"
+          - field: "name"
+            match_type: "fuzzy"
+            weight: 0.5
+            required: false
+            threshold: 0.7
+            normalizer: "lowercase"
+      expect:
+        status: 201
+      save_as: multi_rule
+
+  - assert:
+      variable: multi_rule.conditions[0].normalizer
+      equals: "nemail"
+      message: First condition should have email normalizer
+
+  - assert:
+      variable: multi_rule.conditions[1].normalizer
+      equals: "lowercase"
+      message: Second condition should have lowercase normalizer
+
+  # ============================================
+  # Test 5: List rules and verify normalizers
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules?entity_type=normalizertest{{timestamp}}
+      expect:
+        status: 200
+      save_as: rules_list
+
+  - assert:
+      variable: rules_list[0]
+      not_nil: true
+      message: Should have at least one rule in the list
+
+cleanup:
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{email_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{phone_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{name_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{multi_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

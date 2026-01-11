@@ -1,0 +1,372 @@
+name: Lotus Validator Step Tests
+description: Tests validator steps that validate data and fail if conditions aren't met
+
+steps:
+  # ============================================
+  # Test 1: Validator passes - data flows through
+  # Using any_is_empty with invert to check "is not empty"
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Validator Pass Test"
+        source_raw:
+          email: "valid@example.com"
+          name: "John Doe"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+          - id: name
+            path: "name"
+            type: string
+        target_fields:
+          - id: validated_email
+            path: "validated_email"
+            type: string
+        steps:
+          # Validator: check email is not empty (is_empty inverted = is NOT empty)
+          - id: validate_email
+            type: validator
+            action:
+              key: any_is_empty
+              invert: true
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: validate_email
+          - source:
+              step_id: validate_email
+            target:
+              field_id: validated_email
+      expect:
+        status: 200
+      save_as: pass_result
+
+  - assert:
+      variable: pass_result.target_raw.validated_email
+      equals: "valid@example.com"
+      message: Validator should pass and data should flow through
+
+  # ============================================
+  # Test 2: Validator fails - target field not populated
+  # Empty string fails "not empty" check, target_raw is empty
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Validator Fail Test"
+        source_raw:
+          email: ""
+          name: "John Doe"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+          - id: name
+            path: "name"
+            type: string
+        target_fields:
+          - id: validated_email
+            path: "validated_email"
+            type: string
+        steps:
+          - id: validate_email
+            type: validator
+            action:
+              key: any_is_empty
+              invert: true
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: validate_email
+          - source:
+              step_id: validate_email
+            target:
+              field_id: validated_email
+      expect:
+        status: 200
+      save_as: fail_result
+
+  # When validation fails, the target field is not populated
+  - assert:
+      variable: fail_result.target_raw.validated_email
+      is_nil: true
+      message: Target field should not be populated when validation fails
+
+  # ============================================
+  # Test 3: Number validation - is_even passes
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Validator Pass Test"
+        source_raw:
+          quantity: 10
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: valid_quantity
+            path: "valid_quantity"
+            type: number
+        steps:
+          - id: check_even
+            type: validator
+            action:
+              key: number_is_even
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_even
+          - source:
+              step_id: check_even
+            target:
+              field_id: valid_quantity
+      expect:
+        status: 200
+      save_as: number_pass_result
+
+  - assert:
+      variable: number_pass_result.target_raw.valid_quantity
+      equals: 10
+      message: Even number should pass is_even validation
+
+  # ============================================
+  # Test 4: Number validation fails for odd number
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Validator Fail Test"
+        source_raw:
+          quantity: 7
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: valid_quantity
+            path: "valid_quantity"
+            type: number
+        steps:
+          - id: check_even
+            type: validator
+            action:
+              key: number_is_even
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_even
+          - source:
+              step_id: check_even
+            target:
+              field_id: valid_quantity
+      expect:
+        status: 200
+      save_as: number_fail_result
+
+  - assert:
+      variable: number_fail_result.target_raw.valid_quantity
+      is_nil: true
+      message: Odd number should fail is_even validation (target not populated)
+
+  # ============================================
+  # Test 5: Regex pattern validation passes
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Validator Pass Test"
+        source_raw:
+          username: "johndoe123"
+        source_fields:
+          - id: username
+            path: "username"
+            type: string
+        target_fields:
+          - id: validated_username
+            path: "validated_username"
+            type: string
+        steps:
+          # Validate alphanumeric lowercase pattern
+          - id: check_pattern
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-z0-9]+$"
+        links:
+          - source:
+              field_id: username
+            target:
+              step_id: check_pattern
+          - source:
+              step_id: check_pattern
+            target:
+              field_id: validated_username
+      expect:
+        status: 200
+      save_as: regex_pass_result
+
+  - assert:
+      variable: regex_pass_result.target_raw.validated_username
+      equals: "johndoe123"
+      message: Valid username should pass regex validation
+
+  # ============================================
+  # Test 6: Regex pattern validation fails
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Validator Fail Test"
+        source_raw:
+          username: "John_Doe!"
+        source_fields:
+          - id: username
+            path: "username"
+            type: string
+        target_fields:
+          - id: validated_username
+            path: "validated_username"
+            type: string
+        steps:
+          - id: check_pattern
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-z0-9]+$"
+        links:
+          - source:
+              field_id: username
+            target:
+              step_id: check_pattern
+          - source:
+              step_id: check_pattern
+            target:
+              field_id: validated_username
+      expect:
+        status: 200
+      save_as: regex_fail_result
+
+  - assert:
+      variable: regex_fail_result.target_raw.validated_username
+      is_nil: true
+      message: Invalid username should fail regex validation (target not populated)
+
+  # ============================================
+  # Test 7: Multiple validators in chain
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Chained Validators Test"
+        source_raw:
+          code: "abc123"
+        source_fields:
+          - id: code
+            path: "code"
+            type: string
+        target_fields:
+          - id: validated_code
+            path: "validated_code"
+            type: string
+        steps:
+          # First validator: not empty
+          - id: check_not_empty
+            type: validator
+            action:
+              key: any_is_empty
+              invert: true
+          # Second validator: matches alphanumeric pattern
+          - id: check_alphanumeric
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-z0-9]+$"
+        links:
+          - source:
+              field_id: code
+            target:
+              step_id: check_not_empty
+          - source:
+              step_id: check_not_empty
+            target:
+              step_id: check_alphanumeric
+          - source:
+              step_id: check_alphanumeric
+            target:
+              field_id: validated_code
+      expect:
+        status: 200
+      save_as: chain_pass_result
+
+  - assert:
+      variable: chain_pass_result.target_raw.validated_code
+      equals: "abc123"
+      message: Code should pass all chained validations
+
+  # ============================================
+  # Test 8: any_is_nil check on non-nil value fails
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Is Nil Fail Test"
+        source_raw:
+          value: "not nil"
+        source_fields:
+          - id: value
+            path: "value"
+            type: string
+        target_fields:
+          - id: result
+            path: "result"
+            type: string
+        steps:
+          # This validator should FAIL because value is NOT nil
+          - id: check_nil
+            type: validator
+            action:
+              key: any_is_nil
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_nil
+          - source:
+              step_id: check_nil
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: is_nil_fail_result
+
+  - assert:
+      variable: is_nil_fail_result.target_raw.result
+      is_nil: true
+      message: Non-nil value should fail is_nil validation (target not populated)

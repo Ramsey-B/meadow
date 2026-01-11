@@ -1,0 +1,271 @@
+name: Lotus Binding Enable/Disable and Filters
+description: Tests binding enable/disable functionality and filter configuration
+
+setup:
+  # Create a mapping definition first
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "Binding Test Mapping {{timestamp}}"
+        key: "binding-test-mapping-{{uuid}}"
+        description: "Mapping for testing bindings"
+        source_fields:
+          - id: name
+            path: "name"
+            type: string
+        target_fields:
+          - id: output_name
+            path: "output_name"
+            type: string
+        steps:
+          - id: transform
+            type: transformer
+            action:
+              key: text_to_upper
+        links:
+          - source:
+              field_id: name
+            target:
+              step_id: transform
+          - source:
+              step_id: transform
+            target:
+              field_id: output_name
+      expect:
+        status: 202
+      save_as: mapping
+
+steps:
+  # ============================================
+  # Test 1: Create binding (disabled by default)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/bindings
+      body:
+        name: "Test Binding {{timestamp}}"
+        mapping_id: "{{mapping.id}}"
+        is_enabled: false
+        output_topic: "test-output-topic"
+        filter:
+          integration: ""
+          keys: []
+      expect:
+        status: 201
+      save_as: binding
+
+  - assert:
+      variable: binding.id
+      not_empty: true
+      message: Binding ID should be returned
+
+  - assert:
+      variable: binding.is_enabled
+      equals: false
+      message: Binding should be disabled by default
+
+  # ============================================
+  # Test 2: Enable the binding
+  # ============================================
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/bindings/{{binding.id}}
+      body:
+        is_enabled: true
+      expect:
+        status: 200
+      save_as: enabled_binding
+
+  - assert:
+      variable: enabled_binding.is_enabled
+      equals: true
+      message: Binding should now be enabled
+
+  # Verify enable persisted
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/bindings/{{binding.id}}
+      expect:
+        status: 200
+      save_as: get_enabled
+
+  - assert:
+      variable: get_enabled.is_enabled
+      equals: true
+      message: Enabled state should persist on GET
+
+  # ============================================
+  # Test 3: Disable the binding
+  # ============================================
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/bindings/{{binding.id}}
+      body:
+        is_enabled: false
+      expect:
+        status: 200
+      save_as: disabled_binding
+
+  - assert:
+      variable: disabled_binding.is_enabled
+      equals: false
+      message: Binding should now be disabled
+
+  # ============================================
+  # Test 4: Create binding with integration filter
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/bindings
+      body:
+        name: "Integration Filtered Binding {{timestamp}}"
+        mapping_id: "{{mapping.id}}"
+        is_enabled: true
+        filter:
+          integration: "okta"
+          keys: []
+      expect:
+        status: 201
+      save_as: integration_filtered_binding
+
+  - assert:
+      variable: integration_filtered_binding.filter.integration
+      equals: "okta"
+      message: Integration filter should be set
+
+  # ============================================
+  # Test 5: Create binding with plan key filter
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/bindings
+      body:
+        name: "Plan Key Filtered Binding {{timestamp}}"
+        mapping_id: "{{mapping.id}}"
+        is_enabled: true
+        filter:
+          keys:
+            - "fetch-users"
+            - "sync-employees"
+      expect:
+        status: 201
+      save_as: plan_filtered_binding
+
+  - assert:
+      variable: plan_filtered_binding.filter.keys[0]
+      equals: "fetch-users"
+      message: First plan key filter should be set
+
+  - assert:
+      variable: plan_filtered_binding.filter.keys[1]
+      equals: "sync-employees"
+      message: Second plan key filter should be set
+
+  # ============================================
+  # Test 6: Create binding with combined filters
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/bindings
+      body:
+        name: "Combined Filter Binding {{timestamp}}"
+        mapping_id: "{{mapping.id}}"
+        is_enabled: true
+        filter:
+          integration: "msgraph"
+          keys:
+            - "fetch-devices"
+      expect:
+        status: 201
+      save_as: combined_filtered_binding
+
+  - assert:
+      variable: combined_filtered_binding.filter.integration
+      equals: "msgraph"
+      message: Integration filter in combined should be set
+
+  - assert:
+      variable: combined_filtered_binding.filter.keys[0]
+      equals: "fetch-devices"
+      message: Plan key filter in combined should be set
+
+  # ============================================
+  # Test 7: Update filter on existing binding
+  # ============================================
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/bindings/{{binding.id}}
+      body:
+        filter:
+          integration: "salesforce"
+          keys:
+            - "contacts"
+      expect:
+        status: 200
+      save_as: updated_filter_binding
+
+  - assert:
+      variable: updated_filter_binding.filter.integration
+      equals: "salesforce"
+      message: Integration filter should be updated
+
+  - assert:
+      variable: updated_filter_binding.filter.keys[0]
+      equals: "contacts"
+      message: Plan key filter should be updated
+
+  # ============================================
+  # Test 8: List bindings shows all created
+  # ============================================
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/bindings
+      expect:
+        status: 200
+      save_as: binding_list
+
+  # Should have at least 4 bindings created in this test
+  - assert:
+      variable: binding_list[0]
+      not_nil: true
+      message: Should have at least one binding in list
+
+cleanup:
+  - http_request:
+      service: lotus
+      method: DELETE
+      path: /api/v1/bindings/{{binding.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: lotus
+      method: DELETE
+      path: /api/v1/bindings/{{integration_filtered_binding.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: lotus
+      method: DELETE
+      path: /api/v1/bindings/{{plan_filtered_binding.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: lotus
+      method: DELETE
+      path: /api/v1/bindings/{{combined_filtered_binding.id}}
+      expect:
+        status_one_of: [200, 204, 404]

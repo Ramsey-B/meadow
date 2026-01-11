@@ -87,5 +87,5 @@ func (a *NumberMaxAction) Execute(inputs ...any) (any, error) {
 		}
 	}
 
-	return num < max, nil
+	return num > max, nil
 }

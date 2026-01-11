@@ -1,0 +1,236 @@
+name: Lotus Range Validation Tests
+description: Tests range validation (min/max) using validator steps
+
+steps:
+  # ============================================
+  # Test 1: Single min validation - value passes (50 >= 10)
+  # number_min returns true if value < min
+  # With invert: true, passes if value >= min
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Min Validation Pass Test"
+        source_raw:
+          quantity: 50
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: validated_quantity
+            path: "validated_quantity"
+            type: number
+        steps:
+          # Validate: quantity >= 10
+          - id: check_min
+            type: validator
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              field_id: validated_quantity
+      expect:
+        status: 200
+      save_as: pass_result
+
+  - assert:
+      variable: pass_result.target_raw.validated_quantity
+      equals: 50
+      message: Value 50 >= 10 should pass validation
+
+  # ============================================
+  # Test 2: Single min validation - value fails (5 < 10)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Min Validation Fail Test"
+        source_raw:
+          quantity: 5
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: validated_quantity
+            path: "validated_quantity"
+            type: number
+        steps:
+          # Validate: quantity >= 10 (5 < 10 fails)
+          - id: check_min
+            type: validator
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              field_id: validated_quantity
+      expect:
+        status: 200
+      save_as: fail_result
+
+  - assert:
+      variable: fail_result.target_raw.validated_quantity
+      is_nil: true
+      message: Value 5 < 10 should fail validation
+
+  # ============================================
+  # Test 3: Single max validation - value passes (50 <= 100)
+  # number_max returns true if value > max
+  # With invert: true, passes if value <= max
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Max Validation Pass Test"
+        source_raw:
+          quantity: 50
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: validated_quantity
+            path: "validated_quantity"
+            type: number
+        steps:
+          # Validate: quantity <= 100
+          - id: check_max
+            type: validator
+            action:
+              key: number_max
+              arguments:
+                max: 100
+              invert: true
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_max
+          - source:
+              step_id: check_max
+            target:
+              field_id: validated_quantity
+      expect:
+        status: 200
+      save_as: max_pass_result
+
+  - assert:
+      variable: max_pass_result.target_raw.validated_quantity
+      equals: 50
+      message: Value 50 <= 100 should pass validation
+
+  # ============================================
+  # Test 4: Single max validation - value fails (150 > 100)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Max Validation Fail Test"
+        source_raw:
+          quantity: 150
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: validated_quantity
+            path: "validated_quantity"
+            type: number
+        steps:
+          # Validate: quantity <= 100 (150 > 100 fails)
+          - id: check_max
+            type: validator
+            action:
+              key: number_max
+              arguments:
+                max: 100
+              invert: true
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_max
+          - source:
+              step_id: check_max
+            target:
+              field_id: validated_quantity
+      expect:
+        status: 200
+      save_as: max_fail_result
+
+  - assert:
+      variable: max_fail_result.target_raw.validated_quantity
+      is_nil: true
+      message: Value 150 > 100 should fail validation
+
+  # ============================================
+  # Test 5: Boundary - value at min (10 >= 10 passes)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "At Min Boundary Test"
+        source_raw:
+          quantity: 10
+        source_fields:
+          - id: quantity
+            path: "quantity"
+            type: number
+        target_fields:
+          - id: validated_quantity
+            path: "validated_quantity"
+            type: number
+        steps:
+          - id: check_min
+            type: validator
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+        links:
+          - source:
+              field_id: quantity
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              field_id: validated_quantity
+      expect:
+        status: 200
+      save_as: at_min_result
+
+  - assert:
+      variable: at_min_result.target_raw.validated_quantity
+      equals: 10
+      message: Value at min boundary (10 >= 10) should pass

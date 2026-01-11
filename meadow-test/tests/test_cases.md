@@ -16,14 +16,14 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Category      | Implemented | Planned | Total   |
 | ------------- | ----------- | ------- | ------- |
 | Smoke Tests   | 4           | 0       | 4       |
-| Orchid        | 36          | 9       | 45      |
-| Lotus         | 32          | 8       | 40      |
-| Ivy           | 21          | 21      | 42      |
+| Orchid        | 38          | 6       | 44      |
+| Lotus         | 54          | 2       | 56      |
+| Ivy           | 25          | 17      | 42      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **104**     | **47**  | **151** |
+| **Total**     | **132**     | **34**  | **166** |
 
-**Current Test Suite: 75 YAML test files (72 passing, 3 need service restarts)**
+**Current Test Suite: 76 YAML test files (75 passing, 1 needs Lotus restart)**
 
 ---
 
@@ -44,13 +44,13 @@ Quick validation that services are running and reachable.
 
 ### Integration & Config Management
 
-| Status | Test Case                                    | Test File                                                                                |
-| ------ | -------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| ✅     | Create/Read/Update/Delete integration        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml)   |
-| ✅     | Create integration with config schema        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml)   |
-| ✅     | Create multiple configs for same integration | [`integration/orchid_config_management.yaml`](integration/orchid_config_management.yaml) |
-| ⬚      | Enable/disable configs                       |                                                                                          |
-| ⬚      | Config validation against schema             |                                                                                          |
+| Status | Test Case                                    | Test File                                                                                        |
+| ------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| ✅     | Create/Read/Update/Delete integration        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml)           |
+| ✅     | Create integration with config schema        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml)           |
+| ✅     | Create multiple configs for same integration | [`integration/orchid_config_management.yaml`](integration/orchid_config_management.yaml)         |
+| ✅     | Enable/disable configs                       | [`integration/orchid_config_enable_disable.yaml`](integration/orchid_config_enable_disable.yaml) |
+| ⬚      | Config validation against schema             |                                                                                                  |
 
 ### Authentication Flows
 
@@ -113,7 +113,7 @@ Quick validation that services are running and reachable.
 | ✅     | Abort on 403 (forbidden)                   | [`integration/orchid_abort_403.yaml`](integration/orchid_abort_403.yaml)                   |
 | ✅     | Continue on 404 (not found)                | [`integration/orchid_continue_404.yaml`](integration/orchid_continue_404.yaml)             |
 | ✅     | Intermittent failures (retry succeeds)     | [`integration/orchid_retry_intermittent.yaml`](integration/orchid_retry_intermittent.yaml) |
-| ⬚      | Persistent failures (max retries exceeded) |                                                                                            |
+| ✅     | Persistent failures (max retries exceeded) | [`integration/orchid_persistent_failure.yaml`](integration/orchid_persistent_failure.yaml) |
 | ✅     | Timeout handling                           | [`integration/orchid_timeout.yaml`](integration/orchid_timeout.yaml)                       |
 
 ### Rate Limiting
@@ -160,13 +160,13 @@ Quick validation that services are running and reachable.
 
 ### Binding Management
 
-| Status | Test Case                              | Test File                                                                    |
-| ------ | -------------------------------------- | ---------------------------------------------------------------------------- |
-| ✅     | Create/Delete binding                  | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml) |
-| ⬚      | Enable/disable binding                 |                                                                              |
-| ⬚      | Binding with filter (integration name) |                                                                              |
-| ⬚      | Binding with filter (plan keys)        |                                                                              |
-| ⬚      | Multiple bindings for same mapping     |                                                                              |
+| Status | Test Case                              | Test File                                                                                |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| ✅     | Create/Delete binding                  | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)             |
+| ✅     | Enable/disable binding                 | [`integration/lotus_binding_management.yaml`](integration/lotus_binding_management.yaml) |
+| ✅     | Binding with filter (integration name) | [`integration/lotus_binding_management.yaml`](integration/lotus_binding_management.yaml) |
+| ✅     | Binding with filter (plan keys)        | [`integration/lotus_binding_management.yaml`](integration/lotus_binding_management.yaml) |
+| ✅     | Multiple bindings for same mapping     | [`integration/lotus_binding_management.yaml`](integration/lotus_binding_management.yaml) |
 
 ### Actions (Transformations)
 
@@ -228,24 +228,29 @@ Quick validation that services are running and reachable.
 
 ### Conditional Mappings
 
-| Status | Test Case                           | Test File |
-| ------ | ----------------------------------- | --------- |
-| ⬚      | Skip step if condition false        |           |
-| ⬚      | Filter items from array             |           |
-| ⬚      | Conditional output (if-else result) |           |
-| ⬚      | Conditional to aggregate step       |           |
-| ⬚      | Multiple conditions (AND/OR)        |           |
+| Status | Test Case                        | Test File                                                                          |
+| ------ | -------------------------------- | ---------------------------------------------------------------------------------- |
+| ✅     | Condition passes - step executes | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
+| ✅     | Condition fails - step skipped   | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
+| ✅     | Inverted condition               | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
+| ✅     | Text condition (empty check)     | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
+| ✅     | Regex condition                  | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
+| ⬚      | Filter items from array          |                                                                                    |
+| ⬚      | Multiple conditions (AND/OR)     |                                                                                    |
 
 ### Validation Steps
 
-| Status | Test Case                        | Test File                                                          |
-| ------ | -------------------------------- | ------------------------------------------------------------------ |
-| ✅     | Validate mapping definition      | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml) |
-| ⬚      | Required field validation        |                                                                    |
-| ⬚      | Format validation (email, url)   |                                                                    |
-| ⬚      | Range validation (min/max)       |                                                                    |
-| ⬚      | Regex pattern validation         |                                                                    |
-| ⬚      | Validation failure stops mapping |                                                                    |
+| Status | Test Case                        | Test File                                                                            |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------ |
+| ✅     | Validate mapping definition      | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                   |
+| ✅     | Validator step passes            | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
+| ✅     | Validator step fails (not empty) | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
+| ✅     | Number validation (is_even)      | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
+| ✅     | Regex pattern validation         | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
+| ✅     | Chained validators               | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
+| ⬚      | Required field validation        |                                                                                      |
+| ⬚      | Format validation (email, url)   |                                                                                      |
+| 🔄     | Range validation (min/max)       | [`integration/lotus_range_validation.yaml`](integration/lotus_range_validation.yaml) |
 
 ### Array/Relationship Mappings
 
@@ -277,8 +282,8 @@ Quick validation that services are running and reachable.
 | ✅     | List entity types                 | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml)         |
 | ✅     | Get entity type by ID             | [`integration/ivy_entity_type_crud.yaml`](integration/ivy_entity_type_crud.yaml) |
 | ✅     | Delete entity type                | [`integration/ivy_entity_type_crud.yaml`](integration/ivy_entity_type_crud.yaml) |
-| ⬚      | Update entity type                |                                                                                  |
-| ⬚      | Entity type with merge strategies |                                                                                  |
+| ✅     | Update entity type                | [`integration/ivy_entity_type_crud.yaml`](integration/ivy_entity_type_crud.yaml) |
+| ✅     | Entity type with merge strategies | [`integration/ivy_merge_strategies.yaml`](integration/ivy_merge_strategies.yaml) |
 
 ### Relationship Type Management
 
@@ -291,16 +296,16 @@ Quick validation that services are running and reachable.
 
 ### Match Rules
 
-| Status | Test Case                                 | Test File                                                                        |
-| ------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
-| ✅     | Create exact match rule                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ✅     | List match rules by entity type           | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ✅     | Fuzzy match rule (similarity threshold)   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ✅     | Phonetic match rule                       | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ✅     | Multi-field match rule                    | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ⬚      | Match with normalizers (lowercase, phone) |                                                                                  |
-| ✅     | Match priority ordering                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
-| ✅     | Blocking rules (prevent merge)            | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| Status | Test Case                                 | Test File                                                                          |
+| ------ | ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| ✅     | Create exact match rule                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | List match rules by entity type           | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Fuzzy match rule (similarity threshold)   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Phonetic match rule                       | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Multi-field match rule                    | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Match with normalizers (lowercase, phone) | [`integration/ivy_match_normalizers.yaml`](integration/ivy_match_normalizers.yaml) |
+| ✅     | Match priority ordering                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Blocking rules (prevent merge)            | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
 
 ### Entity Matching
 

@@ -1,0 +1,140 @@
+name: Orchid Persistent Failure (Max Retries Exceeded)
+description: Tests that Orchid correctly handles persistent failures when max retries are exceeded
+
+setup:
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Persistent Failure Test {{timestamp}}"
+        description: "Test max retries exceeded"
+        auth_type: "none"
+        base_url: "{{mock_api_url}}"
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        name: "Test Config"
+        integration_id: "{{integration.id}}"
+        values:
+          base_url: "{{mock_api_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Configure mock to always fail with 500
+  - mock_api:
+      method: GET
+      path: "/mock/persistent-failure/users"
+      response:
+        status: 500
+        body:
+          error: "Service permanently unavailable"
+          message: "This endpoint always fails"
+
+  # Create plan with retry on 5xx but limited retries
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "persistent-failure-{{uuid}}"
+        name: "Persistent Failure Plan"
+        description: "Plan that will fail after max retries"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}/mock/persistent-failure/users"
+            method: GET
+            retry_on: [500, 502, 503, 504]
+            max_retries: 2
+            retry_delay_ms: 500
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Get Kafka offset before execution
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset
+
+steps:
+  # ============================================
+  # Test: Trigger plan and verify failure after max retries
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger_response
+
+  - assert:
+      variable: trigger_response.message_id
+      not_empty: true
+      message: Should receive a message ID for the triggered execution
+
+  # Wait for execution to complete (will fail after retries)
+  - wait:
+      duration: "10s"
+
+  # ============================================
+  # Verify Kafka message shows failure (500 status)
+  # ============================================
+  - assert_kafka_message:
+      topic: api-responses
+      from_offset: "{{kafka_offset}}"
+      timeout: 30s
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "persistent-failure"
+      assertions:
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: status_code
+          equals: 500
+        - field: response_body[0].error
+          equals: "Service permanently unavailable"
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - mock_api:
+      method: DELETE
+      path: "/mock/persistent-failure/users"

@@ -1,0 +1,212 @@
+name: Ivy Entity Types with Merge Strategies
+description: Tests entity type creation with merge strategy definitions in schema
+
+steps:
+  # ============================================
+  # Test 1: Create entity type with merge strategies in schema
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "mergetest{{timestamp}}"
+        name: "Merge Strategy Test Entity"
+        description: "Entity type with various merge strategies"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              description: "Primary email - prefer first non-empty"
+              merge_strategy: "prefer_non_empty"
+            display_name:
+              type: string
+              description: "Display name - use longest value"
+              merge_strategy: "longest"
+            department:
+              type: string
+              description: "Department - use most recent"
+              merge_strategy: "most_recent"
+            salary:
+              type: number
+              description: "Salary - use maximum value"
+              merge_strategy: "max"
+            hire_date:
+              type: string
+              format: date
+              description: "Hire date - use first value"
+              merge_strategy: "first"
+            tags:
+              type: array
+              items:
+                type: string
+              description: "Tags - collect all values"
+              merge_strategy: "collect_all"
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  - assert:
+      variable: entity_type.id
+      not_empty: true
+      message: Entity type ID should be returned
+
+  - assert:
+      variable: entity_type.name
+      equals: "Merge Strategy Test Entity"
+      message: Name should match
+
+  # ============================================
+  # Test 2: Verify merge strategies in schema
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status: 200
+      save_as: retrieved_type
+
+  - assert:
+      variable: retrieved_type.schema.properties.email.merge_strategy
+      equals: "prefer_non_empty"
+      message: Email merge strategy should be prefer_non_empty
+
+  - assert:
+      variable: retrieved_type.schema.properties.display_name.merge_strategy
+      equals: "longest"
+      message: Display name merge strategy should be longest
+
+  - assert:
+      variable: retrieved_type.schema.properties.department.merge_strategy
+      equals: "most_recent"
+      message: Department merge strategy should be most_recent
+
+  - assert:
+      variable: retrieved_type.schema.properties.salary.merge_strategy
+      equals: "max"
+      message: Salary merge strategy should be max
+
+  - assert:
+      variable: retrieved_type.schema.properties.hire_date.merge_strategy
+      equals: "first"
+      message: Hire date merge strategy should be first
+
+  - assert:
+      variable: retrieved_type.schema.properties.tags.merge_strategy
+      equals: "collect_all"
+      message: Tags merge strategy should be collect_all
+
+  # ============================================
+  # Test 3: Create entity type with source priority merge
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "prioritymerge{{timestamp}}"
+        name: "Source Priority Merge Entity"
+        description: "Entity using source priority merge strategy"
+        schema:
+          type: object
+          properties:
+            id_number:
+              type: string
+              description: "ID from trusted source"
+              merge_strategy: "source_priority"
+            status:
+              type: string
+              description: "Status from most trusted source"
+              merge_strategy: "most_trusted"
+          required:
+            - id_number
+      expect:
+        status: 201
+      save_as: priority_type
+
+  - assert:
+      variable: priority_type.schema.properties.id_number.merge_strategy
+      equals: "source_priority"
+      message: ID number should use source_priority merge
+
+  - assert:
+      variable: priority_type.schema.properties.status.merge_strategy
+      equals: "most_trusted"
+      message: Status should use most_trusted merge
+
+  # ============================================
+  # Test 4: Create entity type with numeric merge strategies
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "numericmerge{{timestamp}}"
+        name: "Numeric Merge Entity"
+        description: "Entity with numeric merge strategies"
+        schema:
+          type: object
+          properties:
+            max_score:
+              type: number
+              merge_strategy: "max"
+            min_score:
+              type: number
+              merge_strategy: "min"
+            total_points:
+              type: number
+              merge_strategy: "sum"
+            avg_rating:
+              type: number
+              merge_strategy: "average"
+          required: []
+      expect:
+        status: 201
+      save_as: numeric_type
+
+  - assert:
+      variable: numeric_type.schema.properties.max_score.merge_strategy
+      equals: "max"
+      message: Max score should use max merge
+
+  - assert:
+      variable: numeric_type.schema.properties.min_score.merge_strategy
+      equals: "min"
+      message: Min score should use min merge
+
+  - assert:
+      variable: numeric_type.schema.properties.total_points.merge_strategy
+      equals: "sum"
+      message: Total points should use sum merge
+
+  - assert:
+      variable: numeric_type.schema.properties.avg_rating.merge_strategy
+      equals: "average"
+      message: Avg rating should use average merge
+
+cleanup:
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{priority_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{numeric_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

@@ -6,8 +6,14 @@ import (
 )
 
 func StringifyArgument(argument any) string {
-	// if argument is empty, return an empty string
-	if reflect.ValueOf(argument).IsZero() {
+	// if argument is nil, return an empty string
+	if argument == nil {
+		return ""
+	}
+
+	// if argument is empty/zero value, return an empty string
+	v := reflect.ValueOf(argument)
+	if !v.IsValid() || v.IsZero() {
 		return ""
 	}
 
@@ -24,9 +30,6 @@ func StringifyArgument(argument any) string {
 		}
 		return output
 	}
-
-	// use reflection to stringify the argument by json tag
-	v := reflect.ValueOf(argument)
 
 	// if argument is a pointer, dereference it
 	if v.Kind() == reflect.Ptr {

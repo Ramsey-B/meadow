@@ -1,0 +1,170 @@
+name: Orchid Config Enable/Disable
+description: Tests enabling and disabling configs for integrations
+
+setup:
+  # Create an integration first
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Enable Disable Test Integration {{timestamp}}"
+        description: "Integration for testing config enable/disable"
+        auth_type: "none"
+        base_url: "{{mock_api_url}}"
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create a config for the integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        name: "Test Config {{timestamp}}"
+        integration_id: "{{integration.id}}"
+        values:
+          api_key: "test-key-123"
+          environment: "test"
+      expect:
+        status: 201
+      save_as: config
+
+steps:
+  # ============================================
+  # Test 1: Verify config starts disabled by default
+  # ============================================
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: initial_config
+
+  - assert:
+      variable: initial_config.enabled
+      equals: false
+      message: Config should be disabled by default
+
+  # ============================================
+  # Test 2: Enable the config
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/enable
+      expect:
+        status: 200
+      save_as: enable_response
+
+  - assert:
+      variable: enable_response.enabled
+      equals: true
+      message: Enable response should show enabled=true
+
+  # Verify config is now enabled
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: enabled_config
+
+  - assert:
+      variable: enabled_config.enabled
+      equals: true
+      message: Config should now be enabled
+
+  # ============================================
+  # Test 3: Disable the config
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/disable
+      expect:
+        status: 200
+      save_as: disable_response
+
+  - assert:
+      variable: disable_response.enabled
+      equals: false
+      message: Disable response should show enabled=false
+
+  # Verify config is now disabled
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: disabled_config
+
+  - assert:
+      variable: disabled_config.enabled
+      equals: false
+      message: Config should now be disabled
+
+  # ============================================
+  # Test 4: Enable an already enabled config (idempotent)
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/enable
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/enable
+      expect:
+        status: 200
+      save_as: enable_again_response
+
+  - assert:
+      variable: enable_again_response.enabled
+      equals: true
+      message: Enabling an already enabled config should succeed
+
+  # ============================================
+  # Test 5: Disable an already disabled config (idempotent)
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/disable
+      expect:
+        status: 200
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs/{{config.id}}/disable
+      expect:
+        status: 200
+      save_as: disable_again_response
+
+  - assert:
+      variable: disable_again_response.enabled
+      equals: false
+      message: Disabling an already disabled config should succeed
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status_one_of: [200, 204, 404]

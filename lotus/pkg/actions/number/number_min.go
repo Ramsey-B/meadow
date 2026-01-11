@@ -63,7 +63,7 @@ func (a *NumberMinAction) GetInputBType() models.ActionValueType {
 }
 
 func (a *NumberMinAction) GetOutputType() models.ActionValueType {
-	return a.inputType
+	return models.ActionValueType{Type: models.ValueTypeBool}
 }
 
 func (a *NumberMinAction) Execute(inputs ...any) (any, error) {

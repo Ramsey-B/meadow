@@ -1,0 +1,356 @@
+name: Lotus Condition Step Tests
+description: Tests condition steps that skip downstream processing when condition is false (unlike validators which fail)
+
+steps:
+  # ============================================
+  # Test 1: Condition passes - transformation applied
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Condition Pass Test"
+        source_raw:
+          value: 10
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # Condition: check if value is even
+          - id: check_even
+            type: condition
+            action:
+              key: number_is_even
+          # Transformation: multiply by 2 (only if even)
+          - id: double_it
+            type: transformer
+            action:
+              key: number_multiply
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_even
+          - source:
+              step_id: check_even
+            target:
+              step_id: double_it
+          # Constant multiplier of 2
+          - source:
+              constant: 2
+            target:
+              step_id: double_it
+          - source:
+              step_id: double_it
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: pass_result
+
+  - assert:
+      variable: pass_result.target_raw.result
+      equals: 20
+      message: Even number should pass condition and be doubled (10 * 2 = 20)
+
+  # ============================================
+  # Test 2: Condition fails - transformation skipped
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Condition Skip Test"
+        source_raw:
+          value: 7
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # Condition: check if value is even (will be false for 7)
+          - id: check_even
+            type: condition
+            action:
+              key: number_is_even
+          # Transformation: multiply by 2 (will be skipped)
+          - id: double_it
+            type: transformer
+            action:
+              key: number_multiply
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_even
+          - source:
+              step_id: check_even
+            target:
+              step_id: double_it
+          # Constant multiplier of 2
+          - source:
+              constant: 2
+            target:
+              step_id: double_it
+          - source:
+              step_id: double_it
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: skip_result
+
+  # When condition fails, the downstream step is skipped, so result is nil
+  - assert:
+      variable: skip_result.target_raw.result
+      is_nil: true
+      message: Odd number should fail condition and skip transformation
+
+  # ============================================
+  # Test 3: Inverted condition
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Inverted Condition Test"
+        source_raw:
+          value: 7
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # Condition: check if value is NOT even (inverted)
+          - id: check_not_even
+            type: condition
+            action:
+              key: number_is_even
+              invert: true
+          # Transformation: multiply by 3 (only if odd)
+          - id: triple_it
+            type: transformer
+            action:
+              key: number_multiply
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_not_even
+          - source:
+              step_id: check_not_even
+            target:
+              step_id: triple_it
+          # Constant multiplier of 3
+          - source:
+              constant: 3
+            target:
+              step_id: triple_it
+          - source:
+              step_id: triple_it
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: inverted_result
+
+  - assert:
+      variable: inverted_result.target_raw.result
+      equals: 21
+      message: Odd number should pass inverted condition and be tripled (7 * 3 = 21)
+
+  # ============================================
+  # Test 4: Condition with text - empty check
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Condition Test"
+        source_raw:
+          name: "John"
+          nickname: ""
+        source_fields:
+          - id: name
+            path: "name"
+            type: string
+          - id: nickname
+            path: "nickname"
+            type: string
+        target_fields:
+          - id: display_name
+            path: "display_name"
+            type: string
+          - id: display_nickname
+            path: "display_nickname"
+            type: string
+        steps:
+          # Condition: name is not empty
+          - id: name_not_empty
+            type: condition
+            action:
+              key: any_is_empty
+              invert: true
+          # Transform name to uppercase
+          - id: uppercase_name
+            type: transformer
+            action:
+              key: text_to_upper
+          # Condition: nickname is not empty
+          - id: nickname_not_empty
+            type: condition
+            action:
+              key: any_is_empty
+              invert: true
+          # Transform nickname to uppercase
+          - id: uppercase_nickname
+            type: transformer
+            action:
+              key: text_to_upper
+        links:
+          # Name path
+          - source:
+              field_id: name
+            target:
+              step_id: name_not_empty
+          - source:
+              step_id: name_not_empty
+            target:
+              step_id: uppercase_name
+          - source:
+              step_id: uppercase_name
+            target:
+              field_id: display_name
+          # Nickname path
+          - source:
+              field_id: nickname
+            target:
+              step_id: nickname_not_empty
+          - source:
+              step_id: nickname_not_empty
+            target:
+              step_id: uppercase_nickname
+          - source:
+              step_id: uppercase_nickname
+            target:
+              field_id: display_nickname
+      expect:
+        status: 200
+      save_as: text_condition_result
+
+  - assert:
+      variable: text_condition_result.target_raw.display_name
+      equals: "JOHN"
+      message: Non-empty name should be transformed to uppercase
+
+  - assert:
+      variable: text_condition_result.target_raw.display_nickname
+      is_nil: true
+      message: Empty nickname should skip transformation
+
+  # ============================================
+  # Test 5: Condition with regex pattern
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Regex Condition Test"
+        source_raw:
+          email: "user@example.com"
+          invalid: "not-an-email"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+          - id: invalid
+            path: "invalid"
+            type: string
+        target_fields:
+          - id: valid_email
+            path: "valid_email"
+            type: string
+          - id: invalid_email
+            path: "invalid_email"
+            type: string
+        steps:
+          # Condition: check if looks like email
+          - id: is_email
+            type: condition
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[^@]+@[^@]+\\.[^@]+$"
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+          # Condition for invalid
+          - id: is_email_2
+            type: condition
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[^@]+@[^@]+\\.[^@]+$"
+          - id: lowercase_invalid
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          # Valid email path
+          - source:
+              field_id: email
+            target:
+              step_id: is_email
+          - source:
+              step_id: is_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: valid_email
+          # Invalid email path
+          - source:
+              field_id: invalid
+            target:
+              step_id: is_email_2
+          - source:
+              step_id: is_email_2
+            target:
+              step_id: lowercase_invalid
+          - source:
+              step_id: lowercase_invalid
+            target:
+              field_id: invalid_email
+      expect:
+        status: 200
+      save_as: regex_condition_result
+
+  - assert:
+      variable: regex_condition_result.target_raw.valid_email
+      equals: "user@example.com"
+      message: Valid email should pass regex condition
+
+  - assert:
+      variable: regex_condition_result.target_raw.invalid_email
+      is_nil: true
+      message: Invalid email should fail regex condition and skip transformation
