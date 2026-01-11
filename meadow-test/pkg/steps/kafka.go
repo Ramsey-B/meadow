@@ -678,23 +678,34 @@ func MockAPI(ctx TestContext, params interface{}) error {
 		return fmt.Errorf("mock_api requires 'path'")
 	}
 
-	response, ok := paramsMap["response"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("mock_api requires 'response'")
-	}
+	// Response can be provided directly or required if not using fail_count
+	response, hasResponse := paramsMap["response"].(map[string]interface{})
 
 	// Build configuration request
 	config := map[string]interface{}{
-		"method":   strings.ToUpper(method),
-		"path":     path,
-		"response": ctx.Interpolate(response),
+		"method": strings.ToUpper(method),
+		"path":   path,
+	}
+
+	// Add response if provided
+	if hasResponse {
+		config["response"] = ctx.Interpolate(response)
+	}
+
+	// Support intermittent failure simulation
+	if failCount, ok := paramsMap["fail_count"]; ok {
+		config["fail_count"] = failCount
+	}
+	if failStatus, ok := paramsMap["fail_status"]; ok {
+		config["fail_status"] = failStatus
+	}
+	if failBody, ok := paramsMap["fail_body"]; ok {
+		config["fail_body"] = ctx.Interpolate(failBody)
 	}
 
 	ctx.Log("Configuring mock API: %s %s", method, path)
 
 	// Call mock API configuration endpoint
-	// Note: This assumes the mock API has a configuration endpoint
-	// You may need to implement this in the mocks service
 	resp, err := ctx.HTTPRequest("POST", "mocks", "/api/test/configure", nil, config)
 	if err != nil {
 		return fmt.Errorf("failed to configure mock API: %w", err)

@@ -34,14 +34,17 @@ func NewArraySkipAction(key string, args any, inputTypes ...models.ActionValueTy
 		return nil, err
 	}
 
+	// Use the first input type directly to preserve items type
+	var inputType models.ActionValueType
+	if len(inputTypes) > 0 {
+		inputType = inputTypes[0]
+	}
+
 	return &ArraySkipAction{
-		count: parsedArgs.Count,
-		inputType: models.ActionValueType{
-			Type:  rules["array"].Type,
-			Items: rules["array"].Items.Type,
-		},
-		key:   key,
-		rules: rules,
+		count:     parsedArgs.Count,
+		inputType: inputType,
+		key:       key,
+		rules:     rules,
 	}, nil
 }
 
@@ -80,14 +83,26 @@ func (a *ArraySkipAction) Execute(inputs ...any) (any, error) {
 		return nil, err
 	}
 
-	countArgs := ectolinq.First(actionInputs["count"].Value)
-	count, err := utils.AnyToType[int](countArgs)
-	if err != nil {
-		return nil, err
+	// Use argument count first, fall back to input count
+	count := a.count
+	if count == 0 {
+		if countInput, ok := actionInputs["count"]; ok && len(countInput.Value) > 0 {
+			countArgs := ectolinq.First(countInput.Value)
+			if countArgs != nil {
+				inputCount, err := utils.AnyToType[int](countArgs)
+				if err == nil {
+					count = inputCount
+				}
+			}
+		}
 	}
 
-	if a.count > 0 {
-		count = a.count
+	// Bounds check to prevent panic
+	if count > len(arr) {
+		count = len(arr)
+	}
+	if count < 0 {
+		count = 0
 	}
 
 	return arr[count:], nil

@@ -31,6 +31,7 @@ const (
 	ArrayReverseAction   = "array_reverse"
 	ArraySkipAction      = "array_skip"
 	ArrayTakeAction      = "array_take"
+	ArrayEveryAction     = "array_every"
 
 	// Date Action Keys
 	DateNowAction    = "date_now"
@@ -206,6 +207,27 @@ var ActionDefinitions = map[string]ActionDefinition{
 		Description: "Reverses the order of an array",
 		InputRules:  array.ArrayReverseRules.GetInputRules(),
 		Factory:     array.NewArrayReverseAction,
+	},
+	ArraySkipAction: {
+		Key:         ArraySkipAction,
+		Name:        "Array Skip",
+		Description: "Skips the first N elements of an array",
+		InputRules:  array.ArraySkipRules.GetInputRules(),
+		Factory:     array.NewArraySkipAction,
+	},
+	ArrayTakeAction: {
+		Key:         ArrayTakeAction,
+		Name:        "Array Take",
+		Description: "Takes the first N elements of an array",
+		InputRules:  array.ArrayTakeRules.GetInputRules(),
+		Factory:     array.NewArrayTakeAction,
+	},
+	ArrayEveryAction: {
+		Key:         ArrayEveryAction,
+		Name:        "Array Every",
+		Description: "Checks if every element in an array passes a predicate",
+		InputRules:  array.ArrayEveryRules.GetInputRules(),
+		Factory:     array.NewArrayEveryAction,
 	},
 
 	// Date Action Keys

@@ -1,0 +1,332 @@
+name: Lotus Array Skip and Take Operations
+description: |
+  Tests array manipulation operations including skip (dropping first N elements),
+  take (keeping first N elements), and every (testing predicate on all elements).
+
+steps:
+  # ============================================
+  # Test array_skip - Drop first N elements
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Skip Test"
+        source_raw:
+          numbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        source_fields:
+          - id: numbers
+            path: "numbers"
+            type: array
+            items:
+              type: number
+        target_fields:
+          - id: remaining
+            path: "remaining"
+            type: array
+            items:
+              type: number
+        steps:
+          - id: skip_first_three
+            type: transformer
+            action:
+              key: array_skip
+              arguments:
+                count: 3
+        links:
+          - source:
+              field_id: numbers
+            target:
+              step_id: skip_first_three
+              input_name: array
+          - source:
+              step_id: skip_first_three
+            target:
+              field_id: remaining
+      expect:
+        status: 200
+      save_as: skip_result
+
+  - assert:
+      variable: skip_result.target_raw.remaining[0]
+      equals: 4
+      message: First element after skipping 3 should be 4
+
+  - assert:
+      variable: skip_result.target_raw.remaining[1]
+      equals: 5
+      message: Second element should be 5
+
+  # Verify last element (7th) exists and is 10
+  - assert:
+      variable: skip_result.target_raw.remaining[6]
+      equals: 10
+      message: 7th element should be 10 (skipped 3 from 10 elements)
+
+  # ============================================
+  # Test array_take - Keep first N elements
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Take Test"
+        source_raw:
+          letters: ["a", "b", "c", "d", "e", "f"]
+        source_fields:
+          - id: letters
+            path: "letters"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: first_three
+            path: "first_three"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: take_three
+            type: transformer
+            action:
+              key: array_take
+              arguments:
+                count: 3
+        links:
+          - source:
+              field_id: letters
+            target:
+              step_id: take_three
+              input_name: array
+          - source:
+              step_id: take_three
+            target:
+              field_id: first_three
+      expect:
+        status: 200
+      save_as: take_result
+
+  - assert:
+      variable: take_result.target_raw.first_three[0]
+      equals: "a"
+      message: First element should be "a"
+
+  - assert:
+      variable: take_result.target_raw.first_three[2]
+      equals: "c"
+      message: Third element should be "c" (took first 3 of 6)
+
+  # ============================================
+  # Test take more than array length
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Take Overflow Test"
+        source_raw:
+          short_array: [1, 2]
+        source_fields:
+          - id: short_array
+            path: "short_array"
+            type: array
+            items:
+              type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: array
+            items:
+              type: number
+        steps:
+          - id: take_too_many
+            type: transformer
+            action:
+              key: array_take
+              arguments:
+                count: 10
+        links:
+          - source:
+              field_id: short_array
+            target:
+              step_id: take_too_many
+              input_name: array
+          - source:
+              step_id: take_too_many
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: take_overflow
+
+  # Verify second element exists (array has 2 elements)
+  - assert:
+      variable: take_overflow.target_raw.result[1]
+      equals: 2
+      message: Taking more than available should return all elements (2nd is 2)
+
+  - assert:
+      variable: take_overflow.target_raw.result[0]
+      equals: 1
+      message: Should have first element
+
+  - assert:
+      variable: take_overflow.target_raw.result[1]
+      equals: 2
+      message: Should have second element
+
+  # ============================================
+  # Test skip and take combined (pagination style)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Pagination Test"
+        source_raw:
+          items: ["item1", "item2", "item3", "item4", "item5", "item6", "item7", "item8"]
+        source_fields:
+          - id: items
+            path: "items"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: page
+            path: "page"
+            type: array
+            items:
+              type: string
+        steps:
+          # Skip first 2, then take 3 (like page 2 with page size 3)
+          - id: skip_step
+            type: transformer
+            action:
+              key: array_skip
+              arguments:
+                count: 2
+          - id: take_step
+            type: transformer
+            action:
+              key: array_take
+              arguments:
+                count: 3
+        links:
+          - source:
+              field_id: items
+            target:
+              step_id: skip_step
+              input_name: array
+          - source:
+              step_id: skip_step
+            target:
+              step_id: take_step
+              input_name: array
+          - source:
+              step_id: take_step
+            target:
+              field_id: page
+      expect:
+        status: 200
+      save_as: pagination_result
+
+  - assert:
+      variable: pagination_result.target_raw.page[0]
+      equals: "item3"
+      message: First page element should be item3 (after skipping 2)
+
+  - assert:
+      variable: pagination_result.target_raw.page[1]
+      equals: "item4"
+      message: Second page element should be item4
+
+  - assert:
+      variable: pagination_result.target_raw.page[2]
+      equals: "item5"
+      message: Third page element should be item5
+
+  # Verify 3rd element exists (page has 3 elements)
+  - assert:
+      variable: pagination_result.target_raw.page[2]
+      equals: "item5"
+      message: Page should have 3 elements (3rd is item5)
+
+  # ============================================
+  # Test array_every with number_is_even
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Every Even Test"
+        source_raw:
+          all_even: [2, 4, 6, 8, 10]
+          mixed: [2, 3, 4, 6]
+        source_fields:
+          - id: all_even
+            path: "all_even"
+            type: array
+            items:
+              type: number
+          - id: mixed
+            path: "mixed"
+            type: array
+            items:
+              type: number
+        target_fields:
+          - id: even_check
+            path: "even_check"
+            type: bool
+          - id: mixed_check
+            path: "mixed_check"
+            type: bool
+        steps:
+          - id: check_all_even
+            type: transformer
+            action:
+              key: array_every
+              arguments:
+                actionKey: number_is_even
+          - id: check_mixed
+            type: transformer
+            action:
+              key: array_every
+              arguments:
+                actionKey: number_is_even
+        links:
+          - source:
+              field_id: all_even
+            target:
+              step_id: check_all_even
+              input_name: array
+          - source:
+              step_id: check_all_even
+            target:
+              field_id: even_check
+          - source:
+              field_id: mixed
+            target:
+              step_id: check_mixed
+              input_name: array
+          - source:
+              step_id: check_mixed
+            target:
+              field_id: mixed_check
+      expect:
+        status: 200
+      save_as: every_result
+
+  - assert:
+      variable: every_result.target_raw.even_check
+      equals: true
+      message: All even numbers should pass every(is_even)
+
+  - assert:
+      variable: every_result.target_raw.mixed_check
+      equals: false
+      message: Mixed array with odd number should fail every(is_even)

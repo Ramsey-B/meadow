@@ -16,14 +16,14 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Category      | Implemented | Planned | Total   |
 | ------------- | ----------- | ------- | ------- |
 | Smoke Tests   | 4           | 0       | 4       |
-| Orchid        | 35          | 10      | 45      |
-| Lotus         | 29          | 11      | 40      |
-| Ivy           | 18          | 24      | 42      |
+| Orchid        | 36          | 9       | 45      |
+| Lotus         | 32          | 8       | 40      |
+| Ivy           | 21          | 21      | 42      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **97**      | **54**  | **151** |
+| **Total**     | **104**     | **47**  | **151** |
 
-**Current Test Suite: 72 YAML test files (71 passing, 1 needs Lotus restart)**
+**Current Test Suite: 75 YAML test files (72 passing, 3 need service restarts)**
 
 ---
 
@@ -104,17 +104,17 @@ Quick validation that services are running and reachable.
 
 ### Error Handling
 
-| Status | Test Case                                  | Test File                                                                      |
-| ------ | ------------------------------------------ | ------------------------------------------------------------------------------ |
-| ✅     | Retry on 429 (rate limit)                  | [`integration/orchid_retry_429.yaml`](integration/orchid_retry_429.yaml)       |
-| ✅     | Retry on 5xx (server error)                | [`integration/orchid_retry_5xx.yaml`](integration/orchid_retry_5xx.yaml)       |
-| ✅     | Retry with exponential backoff             | [`integration/orchid_retry_5xx.yaml`](integration/orchid_retry_5xx.yaml)       |
-| ✅     | Abort on 401 (unauthorized)                | [`integration/orchid_abort_401.yaml`](integration/orchid_abort_401.yaml)       |
-| ✅     | Abort on 403 (forbidden)                   | [`integration/orchid_abort_403.yaml`](integration/orchid_abort_403.yaml)       |
-| ✅     | Continue on 404 (not found)                | [`integration/orchid_continue_404.yaml`](integration/orchid_continue_404.yaml) |
-| ⬚      | Intermittent failures (retry succeeds)     |                                                                                |
-| ⬚      | Persistent failures (max retries exceeded) |                                                                                |
-| ✅     | Timeout handling                           | [`integration/orchid_timeout.yaml`](integration/orchid_timeout.yaml)           |
+| Status | Test Case                                  | Test File                                                                                  |
+| ------ | ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| ✅     | Retry on 429 (rate limit)                  | [`integration/orchid_retry_429.yaml`](integration/orchid_retry_429.yaml)                   |
+| ✅     | Retry on 5xx (server error)                | [`integration/orchid_retry_5xx.yaml`](integration/orchid_retry_5xx.yaml)                   |
+| ✅     | Retry with exponential backoff             | [`integration/orchid_retry_5xx.yaml`](integration/orchid_retry_5xx.yaml)                   |
+| ✅     | Abort on 401 (unauthorized)                | [`integration/orchid_abort_401.yaml`](integration/orchid_abort_401.yaml)                   |
+| ✅     | Abort on 403 (forbidden)                   | [`integration/orchid_abort_403.yaml`](integration/orchid_abort_403.yaml)                   |
+| ✅     | Continue on 404 (not found)                | [`integration/orchid_continue_404.yaml`](integration/orchid_continue_404.yaml)             |
+| ✅     | Intermittent failures (retry succeeds)     | [`integration/orchid_retry_intermittent.yaml`](integration/orchid_retry_intermittent.yaml) |
+| ⬚      | Persistent failures (max retries exceeded) |                                                                                            |
+| ✅     | Timeout handling                           | [`integration/orchid_timeout.yaml`](integration/orchid_timeout.yaml)                       |
 
 ### Rate Limiting
 
@@ -186,6 +186,7 @@ Quick validation that services are running and reachable.
 | ✅     | Default value fallback                                                           | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)       |
 | ✅     | Array operations (push, length, contains)                                        | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)             |
 | ✅     | Array operations (distinct, reverse, index_of, randomize)                        | [`integration/lotus_array_advanced.yaml`](integration/lotus_array_advanced.yaml)           |
+| ✅     | Array operations (skip, take, every)                                             | [`integration/lotus_array_skip_take.yaml`](integration/lotus_array_skip_take.yaml)         |
 | ✅     | Object operations (get, pick, omit, merge)                                       | [`integration/lotus_object_actions.yaml`](integration/lotus_object_actions.yaml)           |
 | ✅     | Conditional (is_nil, is_empty, to_string)                                        | [`integration/lotus_conditional_actions.yaml`](integration/lotus_conditional_actions.yaml) |
 | ✅     | Regex match and replace                                                          | [`integration/lotus_regex_actions.yaml`](integration/lotus_regex_actions.yaml)             |
@@ -360,13 +361,13 @@ Quick validation that services are running and reachable.
 
 ### Graph Queries
 
-| Status | Test Case                      | Test File |
-| ------ | ------------------------------ | --------- |
-| ⬚      | Find entity by property        |           |
-| ⬚      | Find entity relationships      |           |
-| ⬚      | Shortest path between entities |           |
-| ⬚      | Neighbor traversal             |           |
-| ⬚      | Complex Cypher query           |           |
+| Status | Test Case                      | Test File                                                                  |
+| ------ | ------------------------------ | -------------------------------------------------------------------------- |
+| ⬚      | Find entity by property        |                                                                            |
+| ⬚      | Find entity relationships      |                                                                            |
+| ✅     | Shortest path between entities | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
+| ✅     | Neighbor traversal             | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
+| ✅     | Cypher query execution         | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
 
 ### Validation
 

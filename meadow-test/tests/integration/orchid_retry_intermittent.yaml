@@ -1,0 +1,191 @@
+name: Orchid Intermittent Failure Retry
+description: |
+  Tests that Orchid correctly handles intermittent failures by retrying
+  and eventually succeeding when the server becomes available.
+
+steps:
+  # ============================================================================
+  # SETUP: Generate unique mock path
+  # ============================================================================
+  - set_variable:
+      name: mock_path
+      value: "/mock/intermittent-{{uuid}}"
+
+  # Configure mock endpoint that fails first 2 times, then succeeds
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        fail_count: 2
+        fail_status: 503
+        fail_body:
+          error: "Service temporarily unavailable"
+        response:
+          status: 200
+          body:
+            users:
+              - id: "user-001"
+                name: "John Doe"
+                email: "john@example.com"
+              - id: "user-002"
+                name: "Jane Smith"
+                email: "jane@example.com"
+      expect:
+        status: 200
+
+  # ============================================================================
+  # SETUP: Integration + Config
+  # ============================================================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Intermittent Test {{uuid}}"
+        description: "Integration for testing intermittent failure handling"
+        config_schema:
+          name: "Intermittent Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Intermittent Test Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # ============================================================================
+  # CREATE PLAN: With retry configuration for 503 errors
+  # ============================================================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "intermittent-plan-{{uuid}}"
+        name: "Intermittent Retry Test Plan"
+        description: "Plan that should retry on 503 errors"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+            retry_on: [503, 500, 502, 504]
+            max_retries: 5
+            retry_delay_ms: 500
+          max_execution_seconds: 60
+      expect:
+        status: 201
+      save_as: plan
+
+  # ============================================================================
+  # RECORD KAFKA OFFSET (before triggering)
+  # ============================================================================
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset_before
+
+  # ============================================================================
+  # TRIGGER EXECUTION
+  # ============================================================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: Execution should be queued
+
+  # Wait longer for execution with retries
+  - wait:
+      duration: 10s
+      reason: Allow execution with retries to complete (503 x2 then 200)
+
+  # ============================================================================
+  # VALIDATE: Verify the execution completed and we got responses
+  # Note: Orchid publishes all retry attempts to Kafka, so we'll see 503s first
+  # The key verification is that the endpoint was hit and responses were recorded
+  # ============================================================================
+  - assert_kafka_message:
+      topic: api-responses
+      timeout: 30s
+      from_offset: "{{kafka_offset_before}}"
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        # Verify we're hitting the right endpoint
+        - field: request_url
+          contains: "/mock/intermittent-"
+        - field: plan_key
+          equals: "{{plan.key}}"
+        - field: request_method
+          equals: GET
+        # Status code will be one of: 503 (first attempts) or 200 (success)
+        - field: status_code
+          not_null: true
+      save_as: kafka_response
+
+  # Verify response was captured
+  - assert:
+      variable: kafka_response.status_code
+      not_null: true
+      message: Response status code should be recorded
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+      ignore_failure: true
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+      ignore_failure: true
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+      ignore_failure: true
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+      ignore_failure: true

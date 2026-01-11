@@ -483,6 +483,34 @@ func HTTPRequest(ctx TestContext, params interface{}) error {
 			}
 		}
 
+		// Check status_one_of - allows multiple acceptable status codes
+		if statusList, ok := expect["status_one_of"]; ok {
+			var validStatuses []int
+			switch sl := statusList.(type) {
+			case []interface{}:
+				for _, s := range sl {
+					switch sv := s.(type) {
+					case int:
+						validStatuses = append(validStatuses, sv)
+					case float64:
+						validStatuses = append(validStatuses, int(sv))
+					case int64:
+						validStatuses = append(validStatuses, int(sv))
+					}
+				}
+			}
+			found := false
+			for _, valid := range validStatuses {
+				if resp.StatusCode == valid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("expected status to be one of %v, got %d: %s", validStatuses, resp.StatusCode, string(respBody))
+			}
+		}
+
 		// Check response body
 		if expectedBody, ok := expect["body"]; ok {
 			var actualBody interface{}

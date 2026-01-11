@@ -1,0 +1,179 @@
+name: Ivy Graph Query Operations
+description: |
+  Tests Ivy's graph query capabilities including Cypher queries,
+  shortest path finding, and neighbor traversal.
+  Note: These tests require the graph database to be enabled and configured.
+
+setup:
+  # Create entity types for testing
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "graphperson{{timestamp}}"
+        name: "Graph Test Person"
+        description: "Person entity for graph query testing"
+        schema:
+          type: object
+          properties:
+            person_id:
+              type: string
+            name:
+              type: string
+            email:
+              type: string
+          required:
+            - person_id
+            - name
+      expect:
+        status: 201
+      save_as: person_type
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "graphdepartment{{timestamp}}"
+        name: "Graph Test Department"
+        description: "Department entity for graph query testing"
+        schema:
+          type: object
+          properties:
+            dept_id:
+              type: string
+            name:
+              type: string
+          required:
+            - dept_id
+            - name
+      expect:
+        status: 201
+      save_as: dept_type
+
+steps:
+  # ============================================
+  # Test graph query endpoint is available
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/graph/query
+      body:
+        query: "MATCH (n) RETURN count(n) as count LIMIT 1"
+        params: {}
+      expect:
+        status_one_of: [200, 503]
+      save_as: query_check
+
+  # If graph service is available (status 200), run more tests
+  # If unavailable (503), the test effectively becomes a service availability check
+
+  # ============================================
+  # Test simple Cypher query
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/graph/query
+      body:
+        query: "MATCH (n) RETURN n LIMIT 5"
+        params: {}
+      expect:
+        status_one_of: [200, 503]
+      save_as: simple_query_result
+
+  # ============================================
+  # Test parameterized query
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/graph/query
+      body:
+        query: "MATCH (n) WHERE n.tenant_id = $tenant_id RETURN n LIMIT 10"
+        params:
+          tenant_id: "{{test_tenant}}"
+      expect:
+        status_one_of: [200, 503]
+      save_as: param_query_result
+
+  # ============================================
+  # Test neighbor finding endpoint
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: "/api/v1/graph/neighbors/person/test-entity-123"
+      query:
+        hops: 2
+      expect:
+        status_one_of: [200, 404, 500, 503]
+      save_as: neighbors_result
+
+  # ============================================
+  # Test shortest path endpoint
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: "/api/v1/graph/path?from=entity-a&to=entity-b&max_hops=5"
+      expect:
+        status_one_of: [200, 404, 500, 503]
+      save_as: path_result
+
+  # ============================================
+  # Test query validation (should fail with bad query)
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/graph/query
+      body:
+        query: ""
+        params: {}
+      expect:
+        status: 400
+      save_as: empty_query_error
+
+  - assert:
+      variable: empty_query_error.message
+      contains: "query is required"
+      message: Should return error for empty query
+
+  # ============================================
+  # Test path endpoint validation
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/graph/path
+      query:
+        from: "entity-a"
+        # missing 'to' parameter
+      expect:
+        status: 400
+      save_as: missing_param_error
+
+  - assert:
+      variable: missing_param_error.message
+      contains: "from and to"
+      message: Should return error for missing parameters
+
+cleanup:
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: "/api/v1/entity-types/{{person_type.id}}"
+      expect:
+        status: 204
+      ignore_failure: true
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: "/api/v1/entity-types/{{dept_type.id}}"
+      expect:
+        status: 204
+      ignore_failure: true

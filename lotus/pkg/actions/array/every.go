@@ -27,8 +27,15 @@ func NewArrayEveryAction(key string, args any, inputTypes ...models.ActionValueT
 		return nil, err
 	}
 
+	// Get items type from the actual input type (not from rules)
+	// inputTypes[0] is the array input with its items type
+	itemsType := models.ValueTypeAny
+	if len(inputTypes) > 0 && inputTypes[0].Items != "" {
+		itemsType = inputTypes[0].Items
+	}
+
 	action, err := registry.GetAction(parsedArgs.ActionKey, parsedArgs.Args, models.ActionValueType{
-		Type: rules["array"].Items.Type,
+		Type: itemsType,
 	})
 	if err != nil {
 		return nil, err
