@@ -280,7 +280,7 @@ func (r *Repository) CreateFieldMapping(ctx context.Context, tenantID string, ma
 	ctx, span := tracing.StartSpan(ctx, "matchindex.Repository.CreateFieldMapping")
 	defer span.End()
 
-	mapping.ID = uuid.New()
+	mapping.ID = uuid.New().String()
 	mapping.TenantID = tenantID
 
 	sb := sqlbuilder.PostgreSQL.NewInsertBuilder()

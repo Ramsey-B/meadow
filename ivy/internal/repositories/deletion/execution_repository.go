@@ -34,8 +34,8 @@ func (r *ExecutionRepository) RecordExecution(ctx context.Context, tracking *mod
 	ctx, span := tracing.StartSpan(ctx, "deletion.ExecutionRepository.RecordExecution")
 	defer span.End()
 
-	if tracking.ID == uuid.Nil {
-		tracking.ID = uuid.New()
+	if tracking.ID == "" {
+		tracking.ID = uuid.New().String()
 	}
 
 	sb := sqlbuilder.PostgreSQL.NewInsertBuilder()
@@ -102,7 +102,7 @@ func (r *ExecutionRepository) GetUnprocessedExecutions(ctx context.Context, tena
 }
 
 // MarkProcessed marks an execution as processed
-func (r *ExecutionRepository) MarkProcessed(ctx context.Context, id uuid.UUID) error {
+func (r *ExecutionRepository) MarkProcessed(ctx context.Context, id string) error {
 	ctx, span := tracing.StartSpan(ctx, "deletion.ExecutionRepository.MarkProcessed")
 	defer span.End()
 

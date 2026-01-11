@@ -100,7 +100,47 @@ steps:
       message: Retrieved name should match
 
   # ============================================================================
-  # TEST 4: Create another entity type for deletion test
+  # TEST 4: Update entity type name and description
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: PUT
+      path: /api/v1/entity-types/{{entity_type.id}}
+      body:
+        name: "Employee (Updated)"
+        description: "Updated employee entity description"
+      expect:
+        status: 200
+      save_as: update_response
+
+  - assert:
+      variable: update_response.name
+      equals: "Employee (Updated)"
+      message: Name should be updated
+
+  - assert:
+      variable: update_response.description
+      equals: "Updated employee entity description"
+      message: Description should be updated
+
+  # ============================================================================
+  # TEST 5: Verify update persisted
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status: 200
+      save_as: verify_update
+
+  - assert:
+      variable: verify_update.name
+      equals: "Employee (Updated)"
+      message: Updated name should persist on GET
+
+  # ============================================================================
+  # TEST 6: Create another entity type for deletion test
   # ============================================================================
   - http_request:
       service: ivy

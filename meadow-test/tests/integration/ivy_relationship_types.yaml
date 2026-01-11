@@ -1,0 +1,174 @@
+name: Ivy Relationship Types CRUD
+description: |
+  Tests relationship type management in Ivy:
+  - Create relationship types with different cardinalities
+  - List relationship types
+  - Update relationship type properties
+  - Delete relationship types
+
+steps:
+  # ============================================================================
+  # TEST 1: Create reports_to relationship (many_to_one)
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        key: "reports_to_{{timestamp}}"
+        name: "Reports To"
+        description: "Employee reports to manager relationship"
+        from_entity_type: "person"
+        to_entity_type: "person"
+        cardinality: "many_to_one"
+      expect:
+        status: 201
+      save_as: reports_to_type
+
+  # Verify relationship type was created
+  - assert:
+      variable: reports_to_type.id
+      not_empty: true
+      message: Relationship type ID should be returned
+
+  - assert:
+      variable: reports_to_type.name
+      equals: "Reports To"
+      message: Name should match
+
+  - assert:
+      variable: reports_to_type.cardinality
+      equals: "many_to_one"
+      message: Cardinality should be many_to_one
+
+  - assert:
+      variable: reports_to_type.from_entity_type
+      equals: "person"
+      message: From entity type should be person
+
+  - assert:
+      variable: reports_to_type.to_entity_type
+      equals: "person"
+      message: To entity type should be person
+
+  # ============================================================================
+  # TEST 2: Create owns relationship (one_to_many)
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        key: "owns_{{timestamp}}"
+        name: "Owns"
+        description: "Person owns device relationship"
+        from_entity_type: "person"
+        to_entity_type: "device"
+        cardinality: "one_to_many"
+      expect:
+        status: 201
+      save_as: owns_type
+
+  # Verify relationship type was created
+  - assert:
+      variable: owns_type.id
+      not_empty: true
+      message: Owns relationship type ID should be returned
+
+  - assert:
+      variable: owns_type.cardinality
+      equals: "one_to_many"
+      message: Cardinality should be one_to_many
+
+  # ============================================================================
+  # TEST 3: Create member_of relationship (many_to_many)
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        key: "member_of_{{timestamp}}"
+        name: "Member Of"
+        description: "Person is member of group relationship"
+        from_entity_type: "person"
+        to_entity_type: "group"
+        cardinality: "many_to_many"
+      expect:
+        status: 201
+      save_as: member_of_type
+
+  # Verify relationship type was created
+  - assert:
+      variable: member_of_type.cardinality
+      equals: "many_to_many"
+      message: Cardinality should be many_to_many
+
+  # ============================================================================
+  # TEST 4: List relationship types
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/relationship-types
+      expect:
+        status: 200
+      save_as: list_response
+
+  # Verify list contains our created types
+  - assert:
+      variable: list_response.items
+      not_empty: true
+      message: Relationship types list should not be empty
+
+  # ============================================================================
+  # TEST 5: Get single relationship type
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/relationship-types/{{reports_to_type.id}}
+      expect:
+        status: 200
+      save_as: get_response
+
+  # Verify the retrieved type matches
+  - assert:
+      variable: get_response.id
+      equals: "{{reports_to_type.id}}"
+      message: Retrieved ID should match
+
+  - assert:
+      variable: get_response.name
+      equals: "Reports To"
+      message: Retrieved name should match
+
+  # ============================================================================
+  # TEST 6: Delete relationship type
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{member_of_type.id}}
+      expect:
+        status: 204
+
+  # Verify deletion
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/relationship-types/{{member_of_type.id}}
+      expect:
+        status: 404
+
+cleanup:
+  # Clean up created relationship types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{reports_to_type.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{owns_type.id}}

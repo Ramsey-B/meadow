@@ -264,4 +264,133 @@ steps:
       equals: true
       message: Should return true for null value
 
+  # ============================================================================
+  # TEST 8: any_to_string - Convert number to string
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "To String Number Test"
+        source_raw:
+          count: 42
+        source_fields:
+          - id: input
+            path: "count"
+            type: number
+        target_fields:
+          - id: result
+            path: "count_str"
+            type: string
+        steps:
+          - id: to_str
+            type: transformer
+            action:
+              key: any_to_string
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: to_str
+          - source:
+              step_id: to_str
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: to_string_result
+
+  # Verify number converted to string
+  - assert:
+      variable: to_string_result.target_raw.count_str
+      equals: "42"
+      message: Number should be converted to string
+
+  # ============================================================================
+  # TEST 9: any_to_string - Convert boolean to string
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "To String Boolean Test"
+        source_raw:
+          flag: true
+        source_fields:
+          - id: input
+            path: "flag"
+            type: bool
+        target_fields:
+          - id: result
+            path: "flag_str"
+            type: string
+        steps:
+          - id: to_str
+            type: transformer
+            action:
+              key: any_to_string
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: to_str
+          - source:
+              step_id: to_str
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: to_string_bool_result
+
+  # Verify boolean converted to string
+  - assert:
+      variable: to_string_bool_result.target_raw.flag_str
+      equals: "true"
+      message: Boolean should be converted to string
+
+  # ============================================================================
+  # TEST 10: any_to_string - Convert float to string
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "To String Float Test"
+        source_raw:
+          price: 19.99
+        source_fields:
+          - id: input
+            path: "price"
+            type: number
+        target_fields:
+          - id: result
+            path: "price_str"
+            type: string
+        steps:
+          - id: to_str
+            type: transformer
+            action:
+              key: any_to_string
+        links:
+          - source:
+              field_id: input
+            target:
+              step_id: to_str
+          - source:
+              step_id: to_str
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: to_string_float_result
+
+  # Verify float converted to string
+  - assert:
+      variable: to_string_float_result.target_raw.price_str
+      equals: "19.99"
+      message: Float should be converted to string
+
 cleanup: []

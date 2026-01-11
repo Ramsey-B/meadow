@@ -105,6 +105,8 @@ type MatchResult struct {
 	EntityType     string
 	Score          float64
 	Details        map[string]any
+	Candidates     []CandidateInfo
+	TotalMatches   int
 }
 
 // CandidateInfo contains information about a match candidate

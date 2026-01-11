@@ -8,9 +8,11 @@ import (
 	"github.com/Gobusters/ectoerror/httperror"
 	"github.com/Gobusters/ectologger"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 
 	appctx "github.com/Ramsey-B/stem/pkg/context"
 	"github.com/Ramsey-B/stem/pkg/database"
+	"github.com/Ramsey-B/stem/pkg/tracing"
 )
 
 // NotFound returns a 404 HTTP error with a descriptive message
@@ -66,4 +68,57 @@ func MustGetTenantID(ctx context.Context) uuid.UUID {
 		panic(err)
 	}
 	return tenantID
+}
+
+// StartSpan starts a new tracing span
+func (r *Repository) StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	return tracing.StartSpan(ctx, name)
+}
+
+// LogError logs an error for a repository operation
+func (r *Repository) LogError(ctx context.Context, operation, table string, err error) {
+	r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+		"operation": operation,
+		"table":     table,
+	}).Error("Repository operation failed")
+}
+
+// LogCreate logs a successful create operation
+func (r *Repository) LogCreate(ctx context.Context, table string, id any) {
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"table": table,
+		"id":    id,
+	}).Debug("Created record")
+}
+
+// LogGet logs a successful get operation
+func (r *Repository) LogGet(ctx context.Context, table string, id any) {
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"table": table,
+		"id":    id,
+	}).Debug("Retrieved record")
+}
+
+// LogUpdate logs a successful update operation
+func (r *Repository) LogUpdate(ctx context.Context, table string, id any) {
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"table": table,
+		"id":    id,
+	}).Debug("Updated record")
+}
+
+// LogDelete logs a successful delete operation
+func (r *Repository) LogDelete(ctx context.Context, table string, id any) {
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"table": table,
+		"id":    id,
+	}).Debug("Deleted record")
+}
+
+// LogList logs a successful list operation
+func (r *Repository) LogList(ctx context.Context, table string, count int) {
+	r.logger.WithContext(ctx).WithFields(map[string]any{
+		"table": table,
+		"count": count,
+	}).Debug("Listed records")
 }

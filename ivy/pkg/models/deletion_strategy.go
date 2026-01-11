@@ -114,3 +114,31 @@ type DeletionStrategyMatch struct {
 	TargetType  string // The entity_type or relationship_type
 	Integration string // The integration (if applicable)
 }
+
+// ExecutionTracking tracks execution completions for deletion processing
+type ExecutionTracking struct {
+	ID          string     `json:"id" db:"id"`
+	TenantID    string     `json:"tenant_id" db:"tenant_id"`
+	ExecutionID string     `json:"execution_id" db:"execution_id"`
+	PlanID      string     `json:"plan_id" db:"plan_id"`
+	EntityType  string     `json:"entity_type" db:"entity_type"`
+	EntityCount int        `json:"entity_count" db:"entity_count"`
+	StartedAt   time.Time  `json:"started_at" db:"started_at"`
+	CompletedAt time.Time  `json:"completed_at" db:"completed_at"`
+	ProcessedAt *time.Time `json:"processed_at,omitempty" db:"processed_at"`
+}
+
+// PendingDeletion represents a deletion that is scheduled but not yet executed
+type PendingDeletion struct {
+	ID              string     `json:"id" db:"id"`
+	TenantID        string     `json:"tenant_id" db:"tenant_id"`
+	StagedEntityID  string     `json:"staged_entity_id" db:"staged_entity_id"`
+	MergedEntityID  *string    `json:"merged_entity_id,omitempty" db:"merged_entity_id"`
+	EntityType      string     `json:"entity_type" db:"entity_type"`
+	Reason          string     `json:"reason" db:"reason"`
+	ScheduledFor    time.Time  `json:"scheduled_for" db:"scheduled_for"`
+	ExecutedAt      *time.Time `json:"executed_at,omitempty" db:"executed_at"`
+	Cancelled       bool       `json:"cancelled" db:"cancelled"`
+	CancelledReason *string    `json:"cancelled_reason,omitempty" db:"cancelled_reason"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+}

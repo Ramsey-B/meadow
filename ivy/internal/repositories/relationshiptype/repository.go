@@ -3,6 +3,7 @@ package relationshiptype
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -55,10 +56,16 @@ func (r *Repository) Create(ctx context.Context, tenantID string, req models.Cre
 		cardinality = models.CardinalityManyToMany
 	}
 
+	// Default schema to empty JSON object if not provided
+	schema := req.Schema
+	if schema == nil {
+		schema = json.RawMessage("{}")
+	}
+
 	sb := sqlbuilder.NewInsertBuilder()
 	sb.InsertInto(tableName)
 	sb.Cols("id", "tenant_id", "key", "name", "description", "from_entity_type", "to_entity_type", "cardinality", "properties", "created_at", "updated_at")
-	sb.Values(id, tenantID, req.Key, req.Name, req.Description, req.FromEntityType, req.ToEntityType, cardinality, req.Schema, now, now)
+	sb.Values(id, tenantID, req.Key, req.Name, req.Description, req.FromEntityType, req.ToEntityType, cardinality, schema, now, now)
 
 	query, args := sb.Build()
 

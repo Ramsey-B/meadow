@@ -9,7 +9,6 @@ import (
 
 	"github.com/Gobusters/ectologger"
 	"github.com/Ramsey-B/stem/pkg/tracing"
-	"github.com/google/uuid"
 
 	deletionrepo "github.com/Ramsey-B/ivy/internal/repositories/deletion"
 	"github.com/Ramsey-B/ivy/internal/repositories/mergedentity"
@@ -115,7 +114,7 @@ func (h *Handler) HandleDeleteMessage(ctx context.Context, msg *models.LotusDele
 				h.kafkaProducer.PublishEntityEvent(ctx, &kafka.EntityEvent{
 					EventType:  "deleted",
 					TenantID:   msg.Source.TenantID,
-					EntityID:   merged.ID.String(),
+					EntityID:   merged.ID,
 					EntityType: merged.EntityType,
 					Version:    merged.Version,
 				})
@@ -134,7 +133,7 @@ func (h *Handler) HandleExecutionCompleted(ctx context.Context, msg *models.Exec
 
 	log := h.logger.WithContext(ctx).WithFields(map[string]any{
 		"tenant_id":    msg.TenantID,
-		"plan_id":      msg.PlanID,
+		"source_key":   msg.SourceKey,
 		"execution_id": msg.ExecutionID,
 	})
 
@@ -145,7 +144,7 @@ func (h *Handler) HandleExecutionCompleted(ctx context.Context, msg *models.Exec
 		tracking := &models.ExecutionTracking{
 			TenantID:    msg.TenantID,
 			ExecutionID: msg.ExecutionID,
-			PlanID:      msg.PlanID,
+			PlanID:      msg.SourceKey,
 			EntityType:  entityType,
 			EntityCount: count,
 			StartedAt:   msg.StartedAt,
@@ -158,7 +157,7 @@ func (h *Handler) HandleExecutionCompleted(ctx context.Context, msg *models.Exec
 	}
 
 	// Process each entity type for execution-based deletions
-	sourceType := fmt.Sprintf("orchid:%s", msg.PlanID)
+	sourceType := fmt.Sprintf("orchid:%s", msg.SourceKey)
 
 	for entityType := range msg.EntityCounts {
 		strategy, err := h.strategyRepo.GetBySource(ctx, msg.TenantID, sourceType, entityType)
@@ -167,12 +166,12 @@ func (h *Handler) HandleExecutionCompleted(ctx context.Context, msg *models.Exec
 			continue
 		}
 
-		if strategy == nil || strategy.Strategy != models.DeletionStrategyExecutionBased || !strategy.Enabled {
+		if strategy == nil || strategy.StrategyType != models.DeletionStrategyExecutionBased || !strategy.Enabled {
 			continue
 		}
 
 		// Find entities from this plan that were not seen in this execution
-		if err := h.processExecutionBasedDeletions(ctx, msg.TenantID, msg.PlanID, msg.ExecutionID, entityType, strategy); err != nil {
+		if err := h.processExecutionBasedDeletions(ctx, msg.TenantID, msg.SourceKey, msg.ExecutionID, entityType, strategy); err != nil {
 			log.WithError(err).Warn("Failed to process execution-based deletions")
 		}
 	}
@@ -218,12 +217,13 @@ func (h *Handler) processExecutionBasedDeletions(ctx context.Context, tenantID, 
 
 	log.WithFields(map[string]any{"count": len(missingEntities)}).Info("Found entities missing from execution")
 
-	// Schedule deletions with grace period
-	scheduledFor := time.Now().UTC().Add(time.Duration(strategy.GracePeriodHours) * time.Hour)
+	// Schedule deletions with grace period (default 24 hours)
+	gracePeriodHours := 24
+	scheduledFor := time.Now().UTC().Add(time.Duration(gracePeriodHours) * time.Hour)
 
 	for _, entity := range missingEntities {
 		// Find merged entity if exists
-		var mergedID *uuid.UUID
+		var mergedID *string
 		merged, _ := h.mergedRepo.GetMergedEntityByStagedID(ctx, tenantID, entity.ID)
 		if merged != nil {
 			mergedID = &merged.ID
@@ -234,7 +234,7 @@ func (h *Handler) processExecutionBasedDeletions(ctx context.Context, tenantID, 
 			StagedEntityID: entity.ID,
 			MergedEntityID: mergedID,
 			EntityType:     entityType,
-			Reason:         models.DeletionStrategyExecutionBased,
+			Reason:         string(models.DeletionStrategyExecutionBased),
 			ScheduledFor:   scheduledFor,
 		}
 
@@ -318,7 +318,7 @@ func (h *Handler) executePendingDeletion(ctx context.Context, pending *models.Pe
 					h.kafkaProducer.PublishEntityEvent(ctx, &kafka.EntityEvent{
 						EventType:  "deleted",
 						TenantID:   pending.TenantID,
-						EntityID:   merged.ID.String(),
+						EntityID:   merged.ID,
 						EntityType: merged.EntityType,
 						Version:    merged.Version,
 					})
@@ -331,7 +331,7 @@ func (h *Handler) executePendingDeletion(ctx context.Context, pending *models.Pe
 }
 
 // UpdateLastSeenExecution updates the last_seen_execution for entities in a message
-func (h *Handler) UpdateLastSeenExecution(ctx context.Context, tenantID, executionID string, entityID uuid.UUID) error {
+func (h *Handler) UpdateLastSeenExecution(ctx context.Context, tenantID, executionID string, entityID string) error {
 	ctx, span := tracing.StartSpan(ctx, "deletion.Handler.UpdateLastSeenExecution")
 	defer span.End()
 

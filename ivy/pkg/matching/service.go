@@ -27,8 +27,8 @@ type Config struct {
 	CandidateCapPerRule int     // Maximum candidates per anchor condition (default: 5000)
 }
 
-// DefaultConfig returns sensible defaults.
-func DefaultConfig() Config {
+// DefaultServiceConfig returns sensible defaults for the matching service.
+func DefaultServiceConfig() Config {
 	return Config{
 		MinMatchScore:       0.5,
 		AutoMergeThreshold:  0.95,

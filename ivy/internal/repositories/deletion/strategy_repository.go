@@ -35,16 +35,16 @@ func (r *StrategyRepository) Create(ctx context.Context, strategy *models.Deleti
 	ctx, span := tracing.StartSpan(ctx, "deletion.StrategyRepository.Create")
 	defer span.End()
 
-	if strategy.ID == uuid.Nil {
-		strategy.ID = uuid.New()
+	if strategy.ID == "" {
+		strategy.ID = uuid.New().String()
 	}
 	strategy.CreatedAt = time.Now().UTC()
 	strategy.UpdatedAt = strategy.CreatedAt
 
 	sb := sqlbuilder.PostgreSQL.NewInsertBuilder()
 	sb.InsertInto("deletion_strategies")
-	sb.Cols("id", "tenant_id", "source_type", "entity_type", "strategy", "grace_period_hours", "retention_days", "enabled", "created_at", "updated_at")
-	sb.Values(strategy.ID, strategy.TenantID, strategy.SourceType, strategy.EntityType, strategy.Strategy, strategy.GracePeriodHours, strategy.RetentionDays, strategy.Enabled, strategy.CreatedAt, strategy.UpdatedAt)
+	sb.Cols("id", "tenant_id", "entity_type", "relationship_type", "integration", "source_key", "strategy_type", "config", "priority", "enabled", "description", "created_at", "updated_at")
+	sb.Values(strategy.ID, strategy.TenantID, strategy.EntityType, strategy.RelationshipType, strategy.Integration, strategy.SourceKey, strategy.StrategyType, strategy.Config, strategy.Priority, strategy.Enabled, strategy.Description, strategy.CreatedAt, strategy.UpdatedAt)
 
 	query, args := sb.Build()
 	if _, err := r.db.ExecContext(ctx, query, args...); err != nil {
@@ -55,17 +55,17 @@ func (r *StrategyRepository) Create(ctx context.Context, strategy *models.Deleti
 	return strategy, nil
 }
 
-// GetBySource gets the deletion strategy for a source type and entity type
-func (r *StrategyRepository) GetBySource(ctx context.Context, tenantID, sourceType, entityType string) (*models.DeletionStrategy, error) {
+// GetBySource gets the deletion strategy for an integration and entity type
+func (r *StrategyRepository) GetBySource(ctx context.Context, tenantID, integration, entityType string) (*models.DeletionStrategy, error) {
 	ctx, span := tracing.StartSpan(ctx, "deletion.StrategyRepository.GetBySource")
 	defer span.End()
 
 	sb := sqlbuilder.PostgreSQL.NewSelectBuilder()
-	sb.Select("id", "tenant_id", "source_type", "entity_type", "strategy", "grace_period_hours", "retention_days", "enabled", "created_at", "updated_at")
+	sb.Select("id", "tenant_id", "entity_type", "relationship_type", "integration", "source_key", "strategy_type", "config", "priority", "enabled", "description", "created_at", "updated_at")
 	sb.From("deletion_strategies")
 	sb.Where(
 		sb.Equal("tenant_id", tenantID),
-		sb.Equal("source_type", sourceType),
+		sb.Equal("integration", integration),
 		sb.Equal("entity_type", entityType),
 	)
 
@@ -87,10 +87,10 @@ func (r *StrategyRepository) ListByTenant(ctx context.Context, tenantID string) 
 	defer span.End()
 
 	sb := sqlbuilder.PostgreSQL.NewSelectBuilder()
-	sb.Select("id", "tenant_id", "source_type", "entity_type", "strategy", "grace_period_hours", "retention_days", "enabled", "created_at", "updated_at")
+	sb.Select("id", "tenant_id", "entity_type", "relationship_type", "integration", "source_key", "strategy_type", "config", "priority", "enabled", "description", "created_at", "updated_at")
 	sb.From("deletion_strategies")
 	sb.Where(sb.Equal("tenant_id", tenantID))
-	sb.OrderBy("source_type", "entity_type")
+	sb.OrderBy("integration", "entity_type")
 
 	query, args := sb.Build()
 	var strategies []models.DeletionStrategy
@@ -102,7 +102,7 @@ func (r *StrategyRepository) ListByTenant(ctx context.Context, tenantID string) 
 }
 
 // Delete deletes a deletion strategy
-func (r *StrategyRepository) Delete(ctx context.Context, tenantID string, id uuid.UUID) error {
+func (r *StrategyRepository) Delete(ctx context.Context, tenantID string, id string) error {
 	ctx, span := tracing.StartSpan(ctx, "deletion.StrategyRepository.Delete")
 	defer span.End()
 

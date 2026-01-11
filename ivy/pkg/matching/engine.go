@@ -22,31 +22,31 @@ import (
 
 // Engine implements entity matching logic
 type Engine struct {
-	logger            ectologger.Logger
-	entityRepo        *stagedentity.Repository
-	matchRuleRepo     *matchrule.Repository
-	matchIndexRepo    *matchindex.Repository
+	logger             ectologger.Logger
+	entityRepo         *stagedentity.Repository
+	matchRuleRepo      *matchrule.Repository
+	matchIndexRepo     *matchindex.Repository
 	matchCandidateRepo *matchcandidate.Repository
-	extractor         *extractor.Extractor
-	config            EngineConfig
+	extractor          *extractor.Extractor
+	config             EngineConfig
 }
 
 // EngineConfig contains configuration for the match engine
 type EngineConfig struct {
-	AutoMergeThreshold    float64 // Score above which to auto-merge (default: 0.95)
-	MinMatchScore         float64 // Minimum score to consider a match (default: 0.5)
-	MaxCandidates         int     // Maximum candidates to return per entity (default: 100)
-	EnableFuzzyMatching   bool    // Whether to enable fuzzy (trigram) matching
-	EnablePhoneticMatching bool   // Whether to enable phonetic matching
+	AutoMergeThreshold     float64 // Score above which to auto-merge (default: 0.95)
+	MinMatchScore          float64 // Minimum score to consider a match (default: 0.5)
+	MaxCandidates          int     // Maximum candidates to return per entity (default: 100)
+	EnableFuzzyMatching    bool    // Whether to enable fuzzy (trigram) matching
+	EnablePhoneticMatching bool    // Whether to enable phonetic matching
 }
 
 // DefaultConfig returns default engine configuration
 func DefaultConfig() EngineConfig {
 	return EngineConfig{
-		AutoMergeThreshold:    0.95,
-		MinMatchScore:         0.5,
-		MaxCandidates:         100,
-		EnableFuzzyMatching:   true,
+		AutoMergeThreshold:     0.95,
+		MinMatchScore:          0.5,
+		MaxCandidates:          100,
+		EnableFuzzyMatching:    true,
 		EnablePhoneticMatching: true,
 	}
 }
@@ -93,7 +93,7 @@ func (e *Engine) FindMatches(ctx context.Context, tenantID string, entity *model
 	if len(rules) == 0 {
 		log.Debug("No match rules defined for entity type")
 		return &models.MatchResult{
-			SourceEntityID: entity.ID,
+			StagedEntityID: entity.ID,
 			Candidates:     []models.CandidateInfo{},
 			TotalMatches:   0,
 		}, nil
@@ -130,7 +130,7 @@ func (e *Engine) FindMatches(ctx context.Context, tenantID string, entity *model
 	for entityID, score := range candidateScores {
 		if score.totalScore >= e.config.MinMatchScore {
 			candidates = append(candidates, models.CandidateInfo{
-				EntityID:     entityID,
+				EntityID:     entityID.String(),
 				Score:        score.totalScore,
 				RulesMatched: score.rulesMatched,
 				FieldScores:  score.fieldScores,
@@ -148,7 +148,7 @@ func (e *Engine) FindMatches(ctx context.Context, tenantID string, entity *model
 	log.WithFields(map[string]any{"match_count": len(candidates)}).Debug("Found matches")
 
 	return &models.MatchResult{
-		SourceEntityID: entity.ID,
+		StagedEntityID: entity.ID,
 		Candidates:     candidates,
 		TotalMatches:   len(candidates),
 	}, nil
@@ -165,7 +165,7 @@ func (e *Engine) ProcessMatchCandidates(ctx context.Context, tenantID string, en
 
 	// Build match candidates
 	candidates := make([]*models.MatchCandidate, 0, len(result.Candidates))
-	autoMergeIDs := make([]uuid.UUID, 0)
+	autoMergeIDs := make([]string, 0)
 
 	for _, c := range result.Candidates {
 		// Check for existing candidate
@@ -279,7 +279,8 @@ func (e *Engine) evaluateRule(ctx context.Context, tenantID string, entity *mode
 		MinSimilarity: minSimilarity,
 	}
 
-	matches, err := e.matchIndexRepo.FindMatches(ctx, tenantID, &entity.ID, criteria)
+	entityUUID, _ := uuid.Parse(entity.ID)
+	matches, err := e.matchIndexRepo.FindMatches(ctx, tenantID, &entityUUID, criteria)
 	if err != nil {
 		return nil, err
 	}
@@ -352,4 +353,3 @@ func sortCandidatesByScore(candidates []models.CandidateInfo) {
 		}
 	}
 }
-

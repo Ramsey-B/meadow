@@ -34,8 +34,8 @@ func (r *PendingRepository) Create(ctx context.Context, pending *models.PendingD
 	ctx, span := tracing.StartSpan(ctx, "deletion.PendingRepository.Create")
 	defer span.End()
 
-	if pending.ID == uuid.Nil {
-		pending.ID = uuid.New()
+	if pending.ID == "" {
+		pending.ID = uuid.New().String()
 	}
 	pending.CreatedAt = time.Now().UTC()
 
@@ -85,7 +85,7 @@ func (r *PendingRepository) GetDue(ctx context.Context, tenantID string, limit i
 }
 
 // MarkExecuted marks a pending deletion as executed
-func (r *PendingRepository) MarkExecuted(ctx context.Context, id uuid.UUID) error {
+func (r *PendingRepository) MarkExecuted(ctx context.Context, id string) error {
 	ctx, span := tracing.StartSpan(ctx, "deletion.PendingRepository.MarkExecuted")
 	defer span.End()
 
@@ -104,7 +104,7 @@ func (r *PendingRepository) MarkExecuted(ctx context.Context, id uuid.UUID) erro
 }
 
 // Cancel cancels a pending deletion
-func (r *PendingRepository) Cancel(ctx context.Context, stagedEntityID uuid.UUID, reason string) error {
+func (r *PendingRepository) Cancel(ctx context.Context, stagedEntityID string, reason string) error {
 	ctx, span := tracing.StartSpan(ctx, "deletion.PendingRepository.Cancel")
 	defer span.End()
 
@@ -128,7 +128,7 @@ func (r *PendingRepository) Cancel(ctx context.Context, stagedEntityID uuid.UUID
 }
 
 // CancelByEntityID cancels pending deletion for an entity (when entity reappears)
-func (r *PendingRepository) CancelByEntityID(ctx context.Context, tenantID string, stagedEntityID uuid.UUID) error {
+func (r *PendingRepository) CancelByEntityID(ctx context.Context, tenantID string, stagedEntityID string) error {
 	return r.Cancel(ctx, stagedEntityID, "entity reappeared in execution")
 }
 

@@ -1,9 +1,11 @@
 package any
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/Ramsey-B/lotus/pkg/errors"
 	"github.com/Ramsey-B/lotus/pkg/models"
-	"github.com/Ramsey-B/lotus/pkg/utils"
 )
 
 var ToStringRules = models.ActionInputRules{
@@ -53,11 +55,39 @@ func (a *ToStringAction) Execute(inputs ...any) (any, error) {
 		return nil, errors.WrapMappingError(err).AddAction(a.key)
 	}
 
-	str, err := utils.AnyToType[string](actionInputs["value"].Value[0])
-	if err != nil {
-		return nil, errors.WrapMappingError(err).AddAction(a.key).AddItemIndex(0)
+	value := actionInputs["value"].Value[0]
+	
+	// Handle nil
+	if value == nil {
+		return "", nil
 	}
-	return str, nil
+
+	// Convert any type to string
+	switch v := value.(type) {
+	case string:
+		return v, nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	case int:
+		return strconv.Itoa(v), nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case float64:
+		// Format without trailing zeros for whole numbers
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10), nil
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case float32:
+		f64 := float64(v)
+		if f64 == float64(int64(f64)) {
+			return strconv.FormatInt(int64(f64), 10), nil
+		}
+		return strconv.FormatFloat(f64, 'f', -1, 32), nil
+	default:
+		// Fallback to fmt.Sprintf for complex types
+		return fmt.Sprintf("%v", v), nil
+	}
 }
 
 
