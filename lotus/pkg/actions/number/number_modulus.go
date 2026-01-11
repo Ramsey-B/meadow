@@ -84,18 +84,16 @@ func (a *NumberModulusAction) Execute(inputs ...any) (any, error) {
 	})
 
 	numerator := ectolinq.First(numbers)
-	for i, num := range numbers[1:] {
-		denominator := num
-		if a.denominator == 0 {
-			denominator = a.denominator
-		}
-
-		if denominator == 0 {
-			return nil, errors.NewMappingErrorf("cannot divide by zero, got %f", denominator).AddItemIndex(i + 1)
-		}
-
-		numerator = math.Mod(numerator, denominator)
+	
+	// Use argument denominator if provided, otherwise use second input
+	denominator := a.denominator
+	if len(numbers) > 1 {
+		denominator = numbers[1]
 	}
 
-	return numerator, nil
+	if denominator == 0 {
+		return nil, errors.NewMappingErrorf("cannot divide by zero, got %f", denominator)
+	}
+
+	return math.Mod(numerator, denominator), nil
 }

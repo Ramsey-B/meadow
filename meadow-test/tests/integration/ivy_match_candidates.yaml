@@ -1,0 +1,74 @@
+name: Ivy Match Candidates Review Queue
+description: |
+  Tests match candidate management in Ivy (review queue):
+  - List pending match candidates
+  - Approve match candidates (triggers merge)
+  - Reject match candidates
+  - Defer match candidates for later review
+  - Filter candidates by status and entity
+
+steps:
+  # ============================================================================
+  # TEST 1: List all pending match candidates
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates
+      expect:
+        status: 200
+      save_as: pending_list
+
+  # Response should be an array (may be empty if no pending candidates)
+  - assert:
+      variable: pending_list
+      not_null: true
+      message: Should return candidates list (may be empty)
+
+  # ============================================================================
+  # TEST 2: List candidates with status filter
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=pending
+      expect:
+        status: 200
+      save_as: pending_filtered
+
+  - assert:
+      variable: pending_filtered
+      not_null: true
+      message: Should return filtered candidates list
+
+  # ============================================================================
+  # TEST 3: List candidates with status=approved
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=approved
+      expect:
+        status: 200
+      save_as: approved_list
+
+  - assert:
+      variable: approved_list
+      not_null: true
+      message: Should return approved candidates list
+
+  # ============================================================================
+  # TEST 4: List candidates with status=rejected
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=rejected
+      expect:
+        status: 200
+      save_as: rejected_list
+
+  - assert:
+      variable: rejected_list
+      not_null: true
+      message: Should return rejected candidates list

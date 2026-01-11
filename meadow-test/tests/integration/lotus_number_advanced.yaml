@@ -1,0 +1,494 @@
+name: Lotus Advanced Number Operations
+description: |
+  Tests advanced number transformation actions in Lotus:
+  - abs (absolute value)
+  - floor, ceiling, round
+  - modulus (remainder)
+  - mathematical operations (sqrt, square)
+  - clamp (between range)
+  - sign (get sign of number)
+
+steps:
+  # ============================================================================
+  # TEST 1: Number absolute value
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Abs Test"
+        source_raw:
+          negative: -42
+          positive: 17
+        source_fields:
+          - id: negative
+            path: "negative"
+            type: number
+          - id: positive
+            path: "positive"
+            type: number
+        target_fields:
+          - id: abs_neg
+            path: "abs_neg"
+            type: number
+          - id: abs_pos
+            path: "abs_pos"
+            type: number
+        steps:
+          - id: abs1
+            type: transformer
+            action:
+              key: number_abs
+          - id: abs2
+            type: transformer
+            action:
+              key: number_abs
+        links:
+          - source:
+              field_id: negative
+            target:
+              step_id: abs1
+          - source:
+              step_id: abs1
+            target:
+              field_id: abs_neg
+          - source:
+              field_id: positive
+            target:
+              step_id: abs2
+          - source:
+              step_id: abs2
+            target:
+              field_id: abs_pos
+      expect:
+        status: 200
+      save_as: abs_result
+
+  - assert:
+      variable: abs_result.target_raw.abs_neg
+      equals: 42
+      message: Absolute value of -42 should be 42
+
+  - assert:
+      variable: abs_result.target_raw.abs_pos
+      equals: 17
+      message: Absolute value of 17 should be 17
+
+  # ============================================================================
+  # TEST 2: Floor, Ceiling, Round
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Rounding Test"
+        source_raw:
+          value: 3.7
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: floored
+            path: "floored"
+            type: number
+          - id: ceiled
+            path: "ceiled"
+            type: number
+          - id: rounded
+            path: "rounded"
+            type: number
+        steps:
+          - id: floor
+            type: transformer
+            action:
+              key: number_floor
+          - id: ceiling
+            type: transformer
+            action:
+              key: number_ceiling
+          - id: round
+            type: transformer
+            action:
+              key: number_round
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: floor
+          - source:
+              step_id: floor
+            target:
+              field_id: floored
+          - source:
+              field_id: value
+            target:
+              step_id: ceiling
+          - source:
+              step_id: ceiling
+            target:
+              field_id: ceiled
+          - source:
+              field_id: value
+            target:
+              step_id: round
+          - source:
+              step_id: round
+            target:
+              field_id: rounded
+      expect:
+        status: 200
+      save_as: round_result
+
+  - assert:
+      variable: round_result.target_raw.floored
+      equals: 3
+      message: Floor of 3.7 should be 3
+
+  - assert:
+      variable: round_result.target_raw.ceiled
+      equals: 4
+      message: Ceiling of 3.7 should be 4
+
+  - assert:
+      variable: round_result.target_raw.rounded
+      equals: 4
+      message: Round of 3.7 should be 4
+
+  # ============================================================================
+  # TEST 3: Modulus (remainder) - using argument
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Modulus Test"
+        source_raw:
+          dividend: 17
+        source_fields:
+          - id: dividend
+            path: "dividend"
+            type: number
+        target_fields:
+          - id: remainder
+            path: "remainder"
+            type: number
+        steps:
+          - id: mod
+            type: transformer
+            action:
+              key: number_modulus
+              arguments:
+                denominator: 5
+        links:
+          - source:
+              field_id: dividend
+            target:
+              step_id: mod
+          - source:
+              step_id: mod
+            target:
+              field_id: remainder
+      expect:
+        status: 200
+      save_as: mod_result
+
+  - assert:
+      variable: mod_result.target_raw.remainder
+      equals: 2
+      message: 17 mod 5 should be 2
+
+  # ============================================================================
+  # TEST 4: Square root
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Square Root Test"
+        source_raw:
+          value: 144
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: sqrt
+            path: "sqrt"
+            type: number
+        steps:
+          - id: sqrt_step
+            type: transformer
+            action:
+              key: number_square_root
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: sqrt_step
+          - source:
+              step_id: sqrt_step
+            target:
+              field_id: sqrt
+      expect:
+        status: 200
+      save_as: sqrt_result
+
+  - assert:
+      variable: sqrt_result.target_raw.sqrt
+      equals: 12
+      message: Square root of 144 should be 12
+
+  # ============================================================================
+  # TEST 5: Square
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Square Test"
+        source_raw:
+          value: 7
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: squared
+            path: "squared"
+            type: number
+        steps:
+          - id: square
+            type: transformer
+            action:
+              key: number_square
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: square
+          - source:
+              step_id: square
+            target:
+              field_id: squared
+      expect:
+        status: 200
+      save_as: square_result
+
+  - assert:
+      variable: square_result.target_raw.squared
+      equals: 49
+      message: 7 squared should be 49
+
+  # ============================================================================
+  # TEST 6: Subtract
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Subtract Test"
+        source_raw:
+          a: 100
+          b: 40
+        source_fields:
+          - id: a
+            path: "a"
+            type: number
+          - id: b
+            path: "b"
+            type: number
+        target_fields:
+          - id: difference
+            path: "difference"
+            type: number
+        steps:
+          - id: subtract
+            type: transformer
+            action:
+              key: number_subtract
+        links:
+          - source:
+              field_id: a
+            target:
+              step_id: subtract
+              input_name: a
+          - source:
+              field_id: b
+            target:
+              step_id: subtract
+              input_name: b
+          - source:
+              step_id: subtract
+            target:
+              field_id: difference
+      expect:
+        status: 200
+      save_as: subtract_result
+
+  - assert:
+      variable: subtract_result.target_raw.difference
+      equals: 60
+      message: 100 - 40 should be 60
+
+  # ============================================================================
+  # TEST 7: Sign (get -1, 0, or 1)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Sign Test"
+        source_raw:
+          negative: -42
+          zero: 0
+          positive: 17
+        source_fields:
+          - id: negative
+            path: "negative"
+            type: number
+          - id: zero
+            path: "zero"
+            type: number
+          - id: positive
+            path: "positive"
+            type: number
+        target_fields:
+          - id: neg_sign
+            path: "neg_sign"
+            type: number
+          - id: zero_sign
+            path: "zero_sign"
+            type: number
+          - id: pos_sign
+            path: "pos_sign"
+            type: number
+        steps:
+          - id: sign1
+            type: transformer
+            action:
+              key: number_sign
+          - id: sign2
+            type: transformer
+            action:
+              key: number_sign
+          - id: sign3
+            type: transformer
+            action:
+              key: number_sign
+        links:
+          - source:
+              field_id: negative
+            target:
+              step_id: sign1
+          - source:
+              step_id: sign1
+            target:
+              field_id: neg_sign
+          - source:
+              field_id: zero
+            target:
+              step_id: sign2
+          - source:
+              step_id: sign2
+            target:
+              field_id: zero_sign
+          - source:
+              field_id: positive
+            target:
+              step_id: sign3
+          - source:
+              step_id: sign3
+            target:
+              field_id: pos_sign
+      expect:
+        status: 200
+      save_as: sign_result
+
+  - assert:
+      variable: sign_result.target_raw.neg_sign
+      equals: -1
+      message: Sign of -42 should be -1
+
+  - assert:
+      variable: sign_result.target_raw.zero_sign
+      equals: 0
+      message: Sign of 0 should be 0
+
+  - assert:
+      variable: sign_result.target_raw.pos_sign
+      equals: 1
+      message: Sign of 17 should be 1
+
+  # ============================================================================
+  # TEST 8: Number is_even and is_odd
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Number Even Odd Test"
+        source_raw:
+          even_num: 42
+          odd_num: 17
+        source_fields:
+          - id: even_num
+            path: "even_num"
+            type: number
+          - id: odd_num
+            path: "odd_num"
+            type: number
+        target_fields:
+          - id: even_is_even
+            path: "even_is_even"
+            type: bool
+          - id: odd_is_odd
+            path: "odd_is_odd"
+            type: bool
+        steps:
+          - id: check_even
+            type: transformer
+            action:
+              key: number_is_even
+          - id: check_odd
+            type: transformer
+            action:
+              key: number_is_odd
+        links:
+          - source:
+              field_id: even_num
+            target:
+              step_id: check_even
+          - source:
+              step_id: check_even
+            target:
+              field_id: even_is_even
+          - source:
+              field_id: odd_num
+            target:
+              step_id: check_odd
+          - source:
+              step_id: check_odd
+            target:
+              field_id: odd_is_odd
+      expect:
+        status: 200
+      save_as: evenodd_result
+
+  - assert:
+      variable: evenodd_result.target_raw.even_is_even
+      equals: true
+      message: 42 should be even
+
+  - assert:
+      variable: evenodd_result.target_raw.odd_is_odd
+      equals: true
+      message: 17 should be odd

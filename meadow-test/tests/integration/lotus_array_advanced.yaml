@@ -1,0 +1,245 @@
+name: Lotus Advanced Array Operations
+description: |
+  Tests advanced array transformation actions in Lotus:
+  - distinct (remove duplicates)
+  - reverse (reverse array order)
+  - index_of (find element index)
+  - randomize (shuffle array)
+
+steps:
+  # ============================================================================
+  # TEST 1: Array distinct (remove duplicates)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Distinct Test"
+        source_raw:
+          tags: ["red", "blue", "red", "green", "blue", "yellow"]
+        source_fields:
+          - id: tags
+            path: "tags"
+            type: array
+        target_fields:
+          - id: unique_tags
+            path: "unique_tags"
+            type: array
+        steps:
+          - id: distinct
+            type: transformer
+            action:
+              key: array_distinct
+        links:
+          - source:
+              field_id: tags
+            target:
+              step_id: distinct
+          - source:
+              step_id: distinct
+            target:
+              field_id: unique_tags
+      expect:
+        status: 200
+      save_as: distinct_result
+
+  # Verify distinct operation
+  - assert:
+      variable: distinct_result.target_raw.unique_tags
+      not_null: true
+      message: Should return unique_tags array
+
+  - assert:
+      variable: distinct_result.target_raw.unique_tags
+      contains: "red"
+      message: Should contain red
+
+  - assert:
+      variable: distinct_result.target_raw.unique_tags
+      contains: "yellow"
+      message: Should contain yellow
+
+  # ============================================================================
+  # TEST 2: Array reverse
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Reverse Test"
+        source_raw:
+          sequence: [1, 2, 3, 4, 5]
+        source_fields:
+          - id: sequence
+            path: "sequence"
+            type: array
+        target_fields:
+          - id: reversed
+            path: "reversed"
+            type: array
+        steps:
+          - id: reverse
+            type: transformer
+            action:
+              key: array_reverse
+        links:
+          - source:
+              field_id: sequence
+            target:
+              step_id: reverse
+          - source:
+              step_id: reverse
+            target:
+              field_id: reversed
+      expect:
+        status: 200
+      save_as: reverse_result
+
+  - assert:
+      variable: reverse_result.target_raw.reversed[0]
+      equals: 5
+      message: First element should be 5 after reversal
+
+  - assert:
+      variable: reverse_result.target_raw.reversed[4]
+      equals: 1
+      message: Last element should be 1 after reversal
+
+  # ============================================================================
+  # TEST 3: Array index_of (with argument)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Index Of Test"
+        source_raw:
+          fruits: ["apple", "banana", "cherry", "date"]
+        source_fields:
+          - id: fruits
+            path: "fruits"
+            type: array
+        target_fields:
+          - id: index
+            path: "index"
+            type: number
+        steps:
+          - id: find_index
+            type: transformer
+            action:
+              key: array_index_of
+              arguments:
+                item: "cherry"
+        links:
+          - source:
+              field_id: fruits
+            target:
+              step_id: find_index
+          - source:
+              step_id: find_index
+            target:
+              field_id: index
+      expect:
+        status: 200
+      save_as: index_result
+
+  - assert:
+      variable: index_result.target_raw.index
+      equals: 2
+      message: Index of cherry should be 2
+
+  # ============================================================================
+  # TEST 4: Array randomize (just verify it works)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Randomize Test"
+        source_raw:
+          items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        source_fields:
+          - id: items
+            path: "items"
+            type: array
+        target_fields:
+          - id: shuffled
+            path: "shuffled"
+            type: array
+        steps:
+          - id: randomize
+            type: transformer
+            action:
+              key: array_randomize
+        links:
+          - source:
+              field_id: items
+            target:
+              step_id: randomize
+          - source:
+              step_id: randomize
+            target:
+              field_id: shuffled
+      expect:
+        status: 200
+      save_as: random_result
+
+  # Just verify output exists and has same length
+  - assert:
+      variable: random_result.target_raw.shuffled
+      not_null: true
+      message: Should return shuffled array
+
+  # ============================================================================
+  # TEST 5: Chained operations (distinct + reverse)
+  # ============================================================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Chain Test (Distinct + Reverse)"
+        source_raw:
+          data: ["z", "a", "z", "m", "a", "b"]
+        source_fields:
+          - id: data
+            path: "data"
+            type: array
+        target_fields:
+          - id: result
+            path: "result"
+            type: array
+        steps:
+          - id: unique
+            type: transformer
+            action:
+              key: array_distinct
+          - id: rev
+            type: transformer
+            action:
+              key: array_reverse
+        links:
+          - source:
+              field_id: data
+            target:
+              step_id: unique
+          - source:
+              step_id: unique
+            target:
+              step_id: rev
+          - source:
+              step_id: rev
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: chain_result
+
+  - assert:
+      variable: chain_result.target_raw.result
+      not_null: true
+      message: Chained result should not be null

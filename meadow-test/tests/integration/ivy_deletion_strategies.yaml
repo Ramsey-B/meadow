@@ -1,0 +1,293 @@
+name: Ivy Deletion Strategies CRUD
+description: |
+  Tests deletion strategy management in Ivy:
+  - Create deletion strategies for entity types
+  - Different strategy types (execution_based, explicit, staleness, retention)
+  - List and filter deletion strategies
+  - Update and delete deletion strategies
+
+steps:
+  # ============================================================================
+  # SETUP: Create entity type for testing
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "deltest{{timestamp}}"
+        name: "Deletion Test Entity"
+        description: "Entity type for deletion strategy testing"
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+          required:
+            - id
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # ============================================================================
+  # TEST 1: Create execution-based deletion strategy
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/deletion-strategies
+      body:
+        entity_type: "deltest{{timestamp}}"
+        strategy_type: "execution_based"
+        priority: 100
+        enabled: true
+        description: "Delete entities not seen in latest execution"
+      expect:
+        status: 201
+      save_as: exec_strategy
+
+  # Verify strategy was created
+  - assert:
+      variable: exec_strategy.id
+      not_empty: true
+      message: Execution strategy ID should be returned
+
+  - assert:
+      variable: exec_strategy.strategy_type
+      equals: "execution_based"
+      message: Strategy type should be execution_based
+
+  - assert:
+      variable: exec_strategy.enabled
+      equals: true
+      message: Strategy should be enabled
+
+  - assert:
+      variable: exec_strategy.priority
+      equals: 100
+      message: Priority should be 100
+
+  # ============================================================================
+  # TEST 2: Create explicit deletion strategy (no auto-delete)
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "explicit{{timestamp}}"
+        name: "Explicit Delete Entity"
+        description: "Entity type requiring explicit deletion"
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+          required:
+            - id
+      expect:
+        status: 201
+      save_as: explicit_entity_type
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/deletion-strategies
+      body:
+        entity_type: "explicit{{timestamp}}"
+        strategy_type: "explicit"
+        priority: 50
+        enabled: true
+        description: "Only delete when explicitly requested"
+      expect:
+        status: 201
+      save_as: explicit_strategy
+
+  # Verify explicit strategy
+  - assert:
+      variable: explicit_strategy.id
+      not_empty: true
+      message: Explicit strategy ID should be returned
+
+  - assert:
+      variable: explicit_strategy.strategy_type
+      equals: "explicit"
+      message: Strategy type should be explicit
+
+  # ============================================================================
+  # TEST 3: Create staleness-based deletion strategy
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "stale{{timestamp}}"
+        name: "Stale Delete Entity"
+        description: "Entity type with staleness-based deletion"
+        schema:
+          type: object
+          properties:
+            id:
+              type: string
+          required:
+            - id
+      expect:
+        status: 201
+      save_as: stale_entity_type
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/deletion-strategies
+      body:
+        entity_type: "stale{{timestamp}}"
+        strategy_type: "staleness"
+        priority: 75
+        enabled: true
+        description: "Delete entities not updated in 30 days"
+        config:
+          max_age_days: 30
+          check_field: "updated_at"
+      expect:
+        status: 201
+      save_as: stale_strategy
+
+  # Verify staleness strategy
+  - assert:
+      variable: stale_strategy.id
+      not_empty: true
+      message: Staleness strategy ID should be returned
+
+  - assert:
+      variable: stale_strategy.strategy_type
+      equals: "staleness"
+      message: Strategy type should be staleness
+
+  # ============================================================================
+  # TEST 4: List all deletion strategies
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/deletion-strategies
+      expect:
+        status: 200
+      save_as: all_strategies
+
+  # Verify we can list strategies
+  - assert:
+      variable: all_strategies.items
+      not_null: true
+      message: Should return strategies list
+
+  # ============================================================================
+  # TEST 5: List deletion strategies filtered by entity type
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/deletion-strategies?entity_type=deltest{{timestamp}}
+      expect:
+        status: 200
+      save_as: filtered_strategies
+
+  # Should find our execution_based strategy
+  - assert:
+      variable: filtered_strategies.items
+      not_empty: true
+      message: Should find strategy for entity type
+
+  # ============================================================================
+  # TEST 6: Get single deletion strategy by ID
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/deletion-strategies/{{exec_strategy.id}}
+      expect:
+        status: 200
+      save_as: get_strategy
+
+  - assert:
+      variable: get_strategy.id
+      equals: "{{exec_strategy.id}}"
+      message: Retrieved strategy ID should match
+
+  - assert:
+      variable: get_strategy.strategy_type
+      equals: "execution_based"
+      message: Strategy type should match
+
+  # ============================================================================
+  # TEST 7: Update deletion strategy
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: PUT
+      path: /api/v1/deletion-strategies/{{exec_strategy.id}}
+      body:
+        enabled: false
+        priority: 150
+        description: "Updated: Disabled execution-based deletion"
+      expect:
+        status: 200
+      save_as: updated_strategy
+
+  - assert:
+      variable: updated_strategy.enabled
+      equals: false
+      message: Strategy should be disabled
+
+  - assert:
+      variable: updated_strategy.priority
+      equals: 150
+      message: Priority should be updated to 150
+
+  # ============================================================================
+  # TEST 8: Delete deletion strategy
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/deletion-strategies/{{explicit_strategy.id}}
+      expect:
+        status: 204
+
+  # Verify deletion - strategy should not be found
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/deletion-strategies/{{explicit_strategy.id}}
+      expect:
+        status: 404
+
+cleanup:
+  # Clean up deletion strategies
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/deletion-strategies/{{exec_strategy.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/deletion-strategies/{{stale_strategy.id}}
+
+  # Clean up entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{explicit_entity_type.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{stale_entity_type.id}}

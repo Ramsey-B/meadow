@@ -17,13 +17,13 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | ------------- | ----------- | ------- | ------- |
 | Smoke Tests   | 4           | 0       | 4       |
 | Orchid        | 35          | 10      | 45      |
-| Lotus         | 26          | 14      | 40      |
-| Ivy           | 10          | 32      | 42      |
+| Lotus         | 29          | 11      | 40      |
+| Ivy           | 18          | 24      | 42      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **86**      | **65**  | **151** |
+| **Total**     | **97**      | **54**  | **151** |
 
-**Current Test Suite: 66 YAML test files, all passing**
+**Current Test Suite: 72 YAML test files (71 passing, 1 needs Lotus restart)**
 
 ---
 
@@ -179,10 +179,13 @@ Quick validation that services are running and reachable.
 | ✅     | Text concat with separator                                                       | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
 | ✅     | Text split to array                                                              | [`integration/lotus_text_actions.yaml`](integration/lotus_text_actions.yaml)               |
 | ✅     | Number operations (add, multiply)                                                | [`integration/lotus_number_actions.yaml`](integration/lotus_number_actions.yaml)           |
+| ✅     | Number operations (abs, floor, ceil, round, sqrt, square)                        | [`integration/lotus_number_advanced.yaml`](integration/lotus_number_advanced.yaml)         |
+| ✅     | Number operations (modulus, sign, is_even, is_odd)                               | [`integration/lotus_number_advanced.yaml`](integration/lotus_number_advanced.yaml)         |
 | ✅     | Date parsing and formatting                                                      | [`integration/lotus_date_actions.yaml`](integration/lotus_date_actions.yaml)               |
 | ✅     | Coalesce (first non-null)                                                        | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)       |
 | ✅     | Default value fallback                                                           | [`integration/lotus_coalesce_default.yaml`](integration/lotus_coalesce_default.yaml)       |
 | ✅     | Array operations (push, length, contains)                                        | [`integration/lotus_array_actions.yaml`](integration/lotus_array_actions.yaml)             |
+| ✅     | Array operations (distinct, reverse, index_of, randomize)                        | [`integration/lotus_array_advanced.yaml`](integration/lotus_array_advanced.yaml)           |
 | ✅     | Object operations (get, pick, omit, merge)                                       | [`integration/lotus_object_actions.yaml`](integration/lotus_object_actions.yaml)           |
 | ✅     | Conditional (is_nil, is_empty, to_string)                                        | [`integration/lotus_conditional_actions.yaml`](integration/lotus_conditional_actions.yaml) |
 | ✅     | Regex match and replace                                                          | [`integration/lotus_regex_actions.yaml`](integration/lotus_regex_actions.yaml)             |
@@ -278,24 +281,25 @@ Quick validation that services are running and reachable.
 
 ### Relationship Type Management
 
-| Status | Test Case                                       | Test File |
-| ------ | ----------------------------------------------- | --------- |
-| ⬚      | Create relationship type                        |           |
-| ⬚      | Relationship cardinality (1:1, 1:N, N:N)        |           |
-| ⬚      | Self-referential relationship (person → person) |           |
-| ⬚      | Cross-entity relationship (person → device)     |           |
+| Status | Test Case                                       | Test File                                                                            |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
+| ✅     | Create relationship type                        | [`integration/ivy_relationship_types.yaml`](integration/ivy_relationship_types.yaml) |
+| ✅     | Relationship cardinality (1:1, 1:N, N:N)        | [`integration/ivy_relationship_types.yaml`](integration/ivy_relationship_types.yaml) |
+| ✅     | Self-referential relationship (person → person) | [`integration/ivy_relationship_types.yaml`](integration/ivy_relationship_types.yaml) |
+| ✅     | Cross-entity relationship (person → device)     | [`integration/ivy_relationship_types.yaml`](integration/ivy_relationship_types.yaml) |
 
 ### Match Rules
 
-| Status | Test Case                                 | Test File                                                                |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------------ |
-| ✅     | Create exact match rule                   | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml) |
-| ✅     | List match rules by entity type           | [`integration/ivy_entity_types.yaml`](integration/ivy_entity_types.yaml) |
-| ⬚      | Fuzzy match rule (similarity threshold)   |                                                                          |
-| ⬚      | Multi-field match rule                    |                                                                          |
-| ⬚      | Match with normalizers (lowercase, phone) |                                                                          |
-| ⬚      | Match priority ordering                   |                                                                          |
-| ⬚      | Blocking rules (prevent merge)            |                                                                          |
+| Status | Test Case                                 | Test File                                                                        |
+| ------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | Create exact match rule                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ✅     | List match rules by entity type           | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ✅     | Fuzzy match rule (similarity threshold)   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ✅     | Phonetic match rule                       | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ✅     | Multi-field match rule                    | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ⬚      | Match with normalizers (lowercase, phone) |                                                                                  |
+| ✅     | Match priority ordering                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
+| ✅     | Blocking rules (prevent merge)            | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml) |
 
 ### Entity Matching
 
@@ -335,21 +339,24 @@ Quick validation that services are running and reachable.
 
 ### Match Candidates (Review Queue)
 
-| Status | Test Case                       | Test File |
-| ------ | ------------------------------- | --------- |
-| ⬚      | List pending match candidates   |           |
-| ⬚      | Approve match candidate (merge) |           |
-| ⬚      | Reject match candidate          |           |
-| ⬚      | Defer match candidate           |           |
+| Status | Test Case                       | Test File                                                                        |
+| ------ | ------------------------------- | -------------------------------------------------------------------------------- |
+| ✅     | List pending match candidates   | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml) |
+| ✅     | Filter by status                | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml) |
+| ⬚      | Approve match candidate (merge) |                                                                                  |
+| ⬚      | Reject match candidate          |                                                                                  |
+| ⬚      | Defer match candidate           |                                                                                  |
 
 ### Deletion Strategies
 
-| Status | Test Case                      | Test File |
-| ------ | ------------------------------ | --------- |
-| ⬚      | Execution-based deletion       |           |
-| ⬚      | Grace period before deletion   |           |
-| ⬚      | Retention period (soft delete) |           |
-| ⬚      | Cascade delete relationships   |           |
+| Status | Test Case                           | Test File                                                                              |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------- |
+| ✅     | Execution-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
+| ✅     | Explicit deletion strategy          | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
+| ✅     | Staleness-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
+| ✅     | List and filter deletion strategies | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
+| ⬚      | Grace period before deletion        |                                                                                        |
+| ⬚      | Cascade delete relationships        |                                                                                        |
 
 ### Graph Queries
 

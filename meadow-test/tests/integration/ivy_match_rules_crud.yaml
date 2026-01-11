@@ -1,0 +1,319 @@
+name: Ivy Match Rules CRUD
+description: |
+  Tests match rule management in Ivy:
+  - Create match rules with different condition types (exact, fuzzy, phonetic)
+  - List match rules by entity type
+  - Update match rule properties
+  - Delete match rules
+  - Multi-field match rules with AND/OR operators
+
+steps:
+  # ============================================================================
+  # SETUP: Create entity type for testing
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "matchtest{{timestamp}}"
+        name: "Match Test Entity"
+        description: "Entity type for match rule testing"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+            employee_id:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # ============================================================================
+  # TEST 1: Create exact email match rule
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "matchtest{{timestamp}}"
+        name: "Email Exact Match"
+        description: "Match entities by exact email address"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: email_rule
+
+  # Verify email rule was created
+  - assert:
+      variable: email_rule.id
+      not_empty: true
+      message: Email rule ID should be returned
+
+  - assert:
+      variable: email_rule.name
+      equals: "Email Exact Match"
+      message: Rule name should match
+
+  - assert:
+      variable: email_rule.is_active
+      equals: true
+      message: Rule should be active
+
+  - assert:
+      variable: email_rule.priority
+      equals: 100
+      message: Priority should be 100
+
+  - assert:
+      variable: email_rule.score_weight
+      equals: 1
+      message: Score weight should be 1.0
+
+  # ============================================================================
+  # TEST 2: Create fuzzy name match rule
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "matchtest{{timestamp}}"
+        name: "Name Fuzzy Match"
+        description: "Match entities by similar first and last names"
+        priority: 50
+        is_active: true
+        score_weight: 0.8
+        conditions:
+          - field: "first_name"
+            match_type: "fuzzy"
+            weight: 0.5
+            required: false
+            threshold: 0.7
+          - field: "last_name"
+            match_type: "fuzzy"
+            weight: 0.5
+            required: true
+            threshold: 0.8
+      expect:
+        status: 201
+      save_as: name_rule
+
+  # Verify fuzzy rule was created
+  - assert:
+      variable: name_rule.id
+      not_empty: true
+      message: Name rule ID should be returned
+
+  - assert:
+      variable: name_rule.name
+      equals: "Name Fuzzy Match"
+      message: Rule name should match
+
+  - assert:
+      variable: name_rule.priority
+      equals: 50
+      message: Priority should be 50
+
+  # ============================================================================
+  # TEST 3: Create phonetic match rule
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "matchtest{{timestamp}}"
+        name: "Name Phonetic Match"
+        description: "Match entities by name pronunciation"
+        priority: 25
+        is_active: true
+        score_weight: 0.6
+        conditions:
+          - field: "first_name"
+            match_type: "phonetic"
+            weight: 0.6
+            required: true
+            threshold: 0.5
+          - field: "last_name"
+            match_type: "phonetic"
+            weight: 0.4
+            required: true
+            threshold: 0.5
+      expect:
+        status: 201
+      save_as: phonetic_rule
+
+  # Verify phonetic rule was created
+  - assert:
+      variable: phonetic_rule.id
+      not_empty: true
+      message: Phonetic rule ID should be returned
+
+  - assert:
+      variable: phonetic_rule.score_weight
+      equals: 0.6
+      message: Score weight should be 0.6
+
+  # ============================================================================
+  # TEST 4: Create blocking rule (no_merge)
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "matchtest{{timestamp}}"
+        name: "Different Department Block"
+        description: "Block merge if employee IDs differ significantly"
+        priority: 200
+        is_active: true
+        score_weight: 0.0
+        conditions:
+          - field: "employee_id"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            no_merge: true
+            invert: true
+      expect:
+        status: 201
+      save_as: blocking_rule
+
+  # Verify blocking rule was created
+  - assert:
+      variable: blocking_rule.id
+      not_empty: true
+      message: Blocking rule ID should be returned
+
+  - assert:
+      variable: blocking_rule.priority
+      equals: 200
+      message: Blocking rules should have high priority
+
+  # ============================================================================
+  # TEST 5: List match rules by entity type
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules?entity_type=matchtest{{timestamp}}
+      expect:
+        status: 200
+      save_as: rules_list
+
+  # Verify we have all created rules
+  - assert:
+      condition: "len(rules_list) >= 4"
+      message: Should have at least 4 match rules
+
+  # ============================================================================
+  # TEST 6: Get single match rule by ID
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules/{{email_rule.id}}
+      expect:
+        status: 200
+      save_as: get_rule
+
+  - assert:
+      variable: get_rule.id
+      equals: "{{email_rule.id}}"
+      message: Retrieved rule ID should match
+
+  - assert:
+      variable: get_rule.name
+      equals: "Email Exact Match"
+      message: Retrieved rule name should match
+
+  # ============================================================================
+  # TEST 7: Update match rule
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: PUT
+      path: /api/v1/match-rules/{{name_rule.id}}
+      body:
+        name: "Name Fuzzy Match (Updated)"
+        priority: 60
+        is_active: false
+      expect:
+        status: 200
+      save_as: updated_rule
+
+  - assert:
+      variable: updated_rule.name
+      equals: "Name Fuzzy Match (Updated)"
+      message: Name should be updated
+
+  - assert:
+      variable: updated_rule.priority
+      equals: 60
+      message: Priority should be updated to 60
+
+  - assert:
+      variable: updated_rule.is_active
+      equals: false
+      message: Rule should be deactivated
+
+  # ============================================================================
+  # TEST 8: Delete match rule
+  # ============================================================================
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{blocking_rule.id}}
+      expect:
+        status: 204
+
+  # Verify deletion - rule should not be found
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules/{{blocking_rule.id}}
+      expect:
+        status: 404
+
+cleanup:
+  # Clean up created match rules
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{email_rule.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{name_rule.id}}
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{phonetic_rule.id}}
+
+  # Clean up entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
