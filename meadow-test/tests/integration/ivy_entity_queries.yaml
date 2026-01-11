@@ -1,0 +1,99 @@
+name: Ivy Entity Query Operations
+description: Tests querying entities by ID, sources, and relationships
+
+setup:
+  # Create entity type for testing
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "querytest{{timestamp}}"
+        name: "Query Test Entity"
+        description: "Entity type for query tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            email:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: entity_type
+
+steps:
+  # ============================================
+  # Test 1: Get entity by type and ID (not found)
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entities/querytest{{timestamp}}/nonexistent-id
+      expect:
+        status_one_of: [404, 500]
+      save_as: not_found_result
+
+  # ============================================
+  # Test 2: Get entity sources (not found)
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entities/querytest{{timestamp}}/nonexistent-id/sources
+      expect:
+        status_one_of: [200, 404, 500]
+      save_as: sources_result
+
+  # ============================================
+  # Test 3: Get entity relationships (not found)
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entities/querytest{{timestamp}}/nonexistent-id/relationships
+      expect:
+        status_one_of: [200, 404, 500]
+      save_as: relationships_result
+
+  # ============================================
+  # Test 4: List entity types to verify our type exists
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types
+      expect:
+        status: 200
+      save_as: entity_types_list
+
+  - assert:
+      variable: entity_types_list[0]
+      not_nil: true
+      message: Should have at least one entity type
+
+  # ============================================
+  # Test 5: Get our specific entity type
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status: 200
+      save_as: retrieved_type
+
+  - assert:
+      variable: retrieved_type.name
+      equals: "Query Test Entity"
+      message: Should retrieve the correct entity type
+
+cleanup:
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

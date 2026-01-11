@@ -1,0 +1,151 @@
+name: Orchid Config Validation Tests
+description: Tests config value validation when creating and updating configurations
+
+setup:
+  # Create an integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Config Validation Test {{timestamp}}"
+        type: "api"
+        description: "Integration for testing config validation"
+      expect:
+        status: 201
+      save_as: integration
+
+steps:
+  # ============================================
+  # Test 1: Create config with valid values
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        name: "Valid Config {{timestamp}}"
+        integration_id: "{{integration.id}}"
+        values:
+          api_url: "https://api.example.com"
+          timeout: 30
+          enabled: true
+      expect:
+        status: 201
+      save_as: valid_config
+
+  - assert:
+      variable: valid_config.id
+      not_empty: true
+      message: Valid config should be created with an ID
+
+  # ============================================
+  # Test 2: Create config with minimal values
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        name: "Minimal Config {{timestamp}}"
+        integration_id: "{{integration.id}}"
+        values:
+          api_url: "https://minimal.example.com"
+      expect:
+        status: 201
+      save_as: minimal_config
+
+  - assert:
+      variable: minimal_config.id
+      not_empty: true
+      message: Minimal config should be created
+
+  # ============================================
+  # Test 3: Create config without name (should fail)
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        values:
+          api_url: "https://api.example.com"
+      expect:
+        status: 400
+      save_as: no_name_result
+
+  # ============================================
+  # Test 4: Create config without integration_id (should fail)
+  # ============================================
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        name: "No Integration Config"
+        values:
+          api_url: "https://api.example.com"
+      expect:
+        status: 400
+      save_as: no_integration_result
+
+  # ============================================
+  # Test 5: Update config values
+  # ============================================
+  - http_request:
+      service: orchid
+      method: PUT
+      path: /api/v1/configs/{{valid_config.id}}
+      body:
+        name: "Updated Config {{timestamp}}"
+        values:
+          api_url: "https://updated.example.com"
+          timeout: 60
+          enabled: false
+      expect:
+        status: 200
+      save_as: updated_config
+
+  - assert:
+      variable: updated_config.name
+      contains: "Updated Config"
+      message: Config name should be updated
+
+  # ============================================
+  # Test 6: Get config to verify values
+  # ============================================
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{valid_config.id}}
+      expect:
+        status: 200
+      save_as: retrieved_config
+
+  - assert:
+      variable: retrieved_config.id
+      equals: "{{valid_config.id}}"
+      message: Retrieved config ID should match
+
+cleanup:
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{valid_config.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{minimal_config.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status_one_of: [200, 204, 404]

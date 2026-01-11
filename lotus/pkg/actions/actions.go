@@ -23,6 +23,7 @@ const (
 	// Array Action Keys
 	ArrayContainsAction  = "array_contains"
 	ArrayDistinctAction  = "array_distinct"
+	ArrayFilterAction    = "array_filter"
 	ArrayFlattenAction   = "array_flatten"
 	ArrayIndexOfAction   = "array_index_of"
 	ArrayLengthAction    = "array_length"
@@ -228,6 +229,13 @@ var ActionDefinitions = map[string]ActionDefinition{
 		Description: "Checks if every element in an array passes a predicate",
 		InputRules:  array.ArrayEveryRules.GetInputRules(),
 		Factory:     array.NewArrayEveryAction,
+	},
+	ArrayFilterAction: {
+		Key:         ArrayFilterAction,
+		Name:        "Array Filter",
+		Description: "Filters array elements that pass a predicate",
+		InputRules:  array.ArrayFilterRules.GetInputRules(),
+		Factory:     array.NewArrayFilterAction,
 	},
 
 	// Date Action Keys

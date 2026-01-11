@@ -1,0 +1,355 @@
+name: Lotus Format Validation Tests
+description: Tests email and URL format validation using regex match validators
+
+steps:
+  # ============================================
+  # Test 1: Valid email passes validation
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Valid Email Test"
+        source_raw:
+          email: "user@example.com"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+        target_fields:
+          - id: validated_email
+            path: "validated_email"
+            type: string
+        steps:
+          - id: check_email
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: check_email
+          - source:
+              step_id: check_email
+            target:
+              field_id: validated_email
+      expect:
+        status: 200
+      save_as: valid_email_result
+
+  - assert:
+      variable: valid_email_result.target_raw.validated_email
+      equals: "user@example.com"
+      message: Valid email should pass validation
+
+  # ============================================
+  # Test 2: Invalid email fails validation
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Invalid Email Test"
+        source_raw:
+          email: "not-an-email"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+        target_fields:
+          - id: validated_email
+            path: "validated_email"
+            type: string
+        steps:
+          - id: check_email
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: check_email
+          - source:
+              step_id: check_email
+            target:
+              field_id: validated_email
+      expect:
+        status: 200
+      save_as: invalid_email_result
+
+  - assert:
+      variable: invalid_email_result.target_raw.validated_email
+      is_nil: true
+      message: Invalid email should fail validation
+
+  # ============================================
+  # Test 3: Valid URL passes validation (http)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Valid HTTP URL Test"
+        source_raw:
+          url: "http://example.com/path"
+        source_fields:
+          - id: url
+            path: "url"
+            type: string
+        target_fields:
+          - id: validated_url
+            path: "validated_url"
+            type: string
+        steps:
+          - id: check_url
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^https?://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~:/?#\\[\\]@!$&'()*+,;=-]*)?$"
+        links:
+          - source:
+              field_id: url
+            target:
+              step_id: check_url
+          - source:
+              step_id: check_url
+            target:
+              field_id: validated_url
+      expect:
+        status: 200
+      save_as: valid_http_result
+
+  - assert:
+      variable: valid_http_result.target_raw.validated_url
+      equals: "http://example.com/path"
+      message: Valid HTTP URL should pass validation
+
+  # ============================================
+  # Test 4: Valid URL passes validation (https)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Valid HTTPS URL Test"
+        source_raw:
+          url: "https://api.example.com/v1/users?page=1"
+        source_fields:
+          - id: url
+            path: "url"
+            type: string
+        target_fields:
+          - id: validated_url
+            path: "validated_url"
+            type: string
+        steps:
+          - id: check_url
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^https?://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~:/?#\\[\\]@!$&'()*+,;=-]*)?$"
+        links:
+          - source:
+              field_id: url
+            target:
+              step_id: check_url
+          - source:
+              step_id: check_url
+            target:
+              field_id: validated_url
+      expect:
+        status: 200
+      save_as: valid_https_result
+
+  - assert:
+      variable: valid_https_result.target_raw.validated_url
+      equals: "https://api.example.com/v1/users?page=1"
+      message: Valid HTTPS URL should pass validation
+
+  # ============================================
+  # Test 5: Invalid URL fails validation
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Invalid URL Test"
+        source_raw:
+          url: "not-a-url"
+        source_fields:
+          - id: url
+            path: "url"
+            type: string
+        target_fields:
+          - id: validated_url
+            path: "validated_url"
+            type: string
+        steps:
+          - id: check_url
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^https?://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~:/?#\\[\\]@!$&'()*+,;=-]*)?$"
+        links:
+          - source:
+              field_id: url
+            target:
+              step_id: check_url
+          - source:
+              step_id: check_url
+            target:
+              field_id: validated_url
+      expect:
+        status: 200
+      save_as: invalid_url_result
+
+  - assert:
+      variable: invalid_url_result.target_raw.validated_url
+      is_nil: true
+      message: Invalid URL should fail validation
+
+  # ============================================
+  # Test 6: Email with subdomain passes
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Subdomain Email Test"
+        source_raw:
+          email: "admin@mail.company.co.uk"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+        target_fields:
+          - id: validated_email
+            path: "validated_email"
+            type: string
+        steps:
+          - id: check_email
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: check_email
+          - source:
+              step_id: check_email
+            target:
+              field_id: validated_email
+      expect:
+        status: 200
+      save_as: subdomain_email_result
+
+  - assert:
+      variable: subdomain_email_result.target_raw.validated_email
+      equals: "admin@mail.company.co.uk"
+      message: Email with subdomain should pass validation
+
+  # ============================================
+  # Test 7: Phone number format validation
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Phone Format Test"
+        source_raw:
+          phone: "+1-555-123-4567"
+        source_fields:
+          - id: phone
+            path: "phone"
+            type: string
+        target_fields:
+          - id: validated_phone
+            path: "validated_phone"
+            type: string
+        steps:
+          - id: check_phone
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^\\+?[0-9][0-9\\-\\s]{8,}[0-9]$"
+        links:
+          - source:
+              field_id: phone
+            target:
+              step_id: check_phone
+          - source:
+              step_id: check_phone
+            target:
+              field_id: validated_phone
+      expect:
+        status: 200
+      save_as: phone_result
+
+  - assert:
+      variable: phone_result.target_raw.validated_phone
+      equals: "+1-555-123-4567"
+      message: Valid phone number should pass validation
+
+  # ============================================
+  # Test 8: UUID format validation
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "UUID Format Test"
+        source_raw:
+          id: "550e8400-e29b-41d4-a716-446655440000"
+        source_fields:
+          - id: id
+            path: "id"
+            type: string
+        target_fields:
+          - id: validated_id
+            path: "validated_id"
+            type: string
+        steps:
+          - id: check_uuid
+            type: validator
+            action:
+              key: text_regex_match
+              arguments:
+                pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        links:
+          - source:
+              field_id: id
+            target:
+              step_id: check_uuid
+          - source:
+              step_id: check_uuid
+            target:
+              field_id: validated_id
+      expect:
+        status: 200
+      save_as: uuid_result
+
+  - assert:
+      variable: uuid_result.target_raw.validated_id
+      equals: "550e8400-e29b-41d4-a716-446655440000"
+      message: Valid UUID should pass validation

@@ -1,0 +1,407 @@
+name: Lotus Multiple Conditions Tests
+description: Tests combining multiple conditions in mappings (AND/OR logic)
+
+steps:
+  # ============================================
+  # Test 1: AND logic - both conditions must pass
+  # Chain conditions: A passes only if B passed
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "AND Conditions - Both Pass"
+        source_raw:
+          value: 50
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # First condition: value >= 10
+          - id: check_min
+            type: condition
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+          # Second condition (chained): value <= 100
+          - id: check_max
+            type: condition
+            action:
+              key: number_max
+              arguments:
+                max: 100
+              invert: true
+          # Pass through the value
+          - id: pass_value
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: 0
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              step_id: check_max
+          - source:
+              step_id: check_max
+            target:
+              step_id: pass_value
+          - source:
+              step_id: pass_value
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: and_pass_result
+
+  - assert:
+      variable: and_pass_result.target_raw.result
+      equals: 50
+      message: Value 50 passes both conditions (>= 10 AND <= 100)
+
+  # ============================================
+  # Test 2: AND logic - first condition fails
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "AND Conditions - First Fails"
+        source_raw:
+          value: 5
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # First condition: value >= 10 (5 < 10, fails)
+          - id: check_min
+            type: condition
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+          # Second condition (won't execute)
+          - id: check_max
+            type: condition
+            action:
+              key: number_max
+              arguments:
+                max: 100
+              invert: true
+          - id: pass_value
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: 0
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              step_id: check_max
+          - source:
+              step_id: check_max
+            target:
+              step_id: pass_value
+          - source:
+              step_id: pass_value
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: and_fail_first_result
+
+  - assert:
+      variable: and_fail_first_result.target_raw.result
+      is_nil: true
+      message: Value 5 fails first condition, chain breaks
+
+  # ============================================
+  # Test 3: AND logic - second condition fails
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "AND Conditions - Second Fails"
+        source_raw:
+          value: 150
+        source_fields:
+          - id: value
+            path: "value"
+            type: number
+        target_fields:
+          - id: result
+            path: "result"
+            type: number
+        steps:
+          # First condition: value >= 10 (150 >= 10, passes)
+          - id: check_min
+            type: condition
+            action:
+              key: number_min
+              arguments:
+                min: 10
+              invert: true
+          # Second condition: value <= 100 (150 > 100, fails)
+          - id: check_max
+            type: condition
+            action:
+              key: number_max
+              arguments:
+                max: 100
+              invert: true
+          - id: pass_value
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: 0
+        links:
+          - source:
+              field_id: value
+            target:
+              step_id: check_min
+          - source:
+              step_id: check_min
+            target:
+              step_id: check_max
+          - source:
+              step_id: check_max
+            target:
+              step_id: pass_value
+          - source:
+              step_id: pass_value
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: and_fail_second_result
+
+  - assert:
+      variable: and_fail_second_result.target_raw.result
+      is_nil: true
+      message: Value 150 fails second condition
+
+  # ============================================
+  # Test 4: Multiple independent conditions
+  # Different paths for different checks
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Multiple Independent Conditions"
+        source_raw:
+          email: "admin@company.com"
+          status: "active"
+        source_fields:
+          - id: email
+            path: "email"
+            type: string
+          - id: status
+            path: "status"
+            type: string
+        target_fields:
+          - id: is_company_email
+            path: "is_company_email"
+            type: bool
+          - id: is_active
+            path: "is_active"
+            type: bool
+        steps:
+          # Check email contains @company.com
+          - id: check_company_email
+            type: transformer
+            action:
+              key: text_contains
+              arguments:
+                search: "@company.com"
+          # Check status equals "active"
+          - id: check_active
+            type: transformer
+            action:
+              key: text_equals
+              arguments:
+                value: "active"
+        links:
+          - source:
+              field_id: email
+            target:
+              step_id: check_company_email
+          - source:
+              step_id: check_company_email
+            target:
+              field_id: is_company_email
+          - source:
+              field_id: status
+            target:
+              step_id: check_active
+          - source:
+              step_id: check_active
+            target:
+              field_id: is_active
+      expect:
+        status: 200
+      save_as: independent_result
+
+  - assert:
+      variable: independent_result.target_raw.is_company_email
+      equals: true
+      message: Email should be identified as company email
+
+  - assert:
+      variable: independent_result.target_raw.is_active
+      equals: true
+      message: Status should be identified as active
+
+  # ============================================
+  # Test 5: Conditional branching - different paths
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Conditional Branching"
+        source_raw:
+          status: "active"
+          name: "Test User"
+        source_fields:
+          - id: status
+            path: "status"
+            type: string
+          - id: name
+            path: "name"
+            type: string
+        target_fields:
+          - id: display_name
+            path: "display_name"
+            type: string
+        steps:
+          # Check if status equals "active"
+          - id: check_active
+            type: condition
+            action:
+              key: text_equals
+              arguments:
+                value: "active"
+          # Add prefix for active users
+          - id: add_prefix
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: ""
+        links:
+          - source:
+              field_id: status
+            target:
+              step_id: check_active
+          - source:
+              constant: "✓ "
+            target:
+              step_id: add_prefix
+          - source:
+              step_id: check_active
+            target:
+              step_id: add_prefix
+          - source:
+              field_id: name
+            target:
+              step_id: add_prefix
+          - source:
+              step_id: add_prefix
+            target:
+              field_id: display_name
+      expect:
+        status: 200
+      save_as: branch_result
+
+  - assert:
+      variable: branch_result.target_raw.display_name
+      contains: "Test User"
+      message: Display name should contain original name
+
+  # ============================================
+  # Test 6: Text condition with empty check
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Empty Check Condition"
+        source_raw:
+          optional_field: ""
+          fallback: "Default Value"
+        source_fields:
+          - id: optional_field
+            path: "optional_field"
+            type: string
+          - id: fallback
+            path: "fallback"
+            type: string
+        target_fields:
+          - id: result
+            path: "result"
+            type: string
+        steps:
+          - id: check_empty
+            type: condition
+            action:
+              key: any_is_empty
+              invert: true
+          - id: use_fallback
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "Fallback Used"
+        links:
+          - source:
+              field_id: optional_field
+            target:
+              step_id: check_empty
+          - source:
+              step_id: check_empty
+            target:
+              step_id: use_fallback
+          - source:
+              step_id: use_fallback
+            target:
+              field_id: result
+      expect:
+        status: 200
+      save_as: empty_check_result
+
+  - assert:
+      variable: empty_check_result.target_raw.result
+      is_nil: true
+      message: Empty string should fail the non-empty condition

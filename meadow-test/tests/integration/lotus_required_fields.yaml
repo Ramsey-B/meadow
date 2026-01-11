@@ -1,0 +1,276 @@
+name: Lotus Required Field Validation Tests
+description: Tests handling of required fields in mappings
+
+steps:
+  # ============================================
+  # Test 1: All required fields provided
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "All Required Fields Test"
+        source_raw:
+          name: "John Doe"
+          email: "john@example.com"
+          age: 30
+        source_fields:
+          - id: name
+            path: "name"
+            type: string
+            required: true
+          - id: email
+            path: "email"
+            type: string
+            required: true
+          - id: age
+            path: "age"
+            type: number
+        target_fields:
+          - id: full_name
+            path: "full_name"
+            type: string
+          - id: contact_email
+            path: "contact_email"
+            type: string
+        steps:
+          - id: pass_name
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "Unknown"
+          - id: pass_email
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "unknown@example.com"
+        links:
+          - source:
+              field_id: name
+            target:
+              step_id: pass_name
+          - source:
+              step_id: pass_name
+            target:
+              field_id: full_name
+          - source:
+              field_id: email
+            target:
+              step_id: pass_email
+          - source:
+              step_id: pass_email
+            target:
+              field_id: contact_email
+      expect:
+        status: 200
+      save_as: all_required_result
+
+  - assert:
+      variable: all_required_result.target_raw.full_name
+      equals: "John Doe"
+      message: Should map required name field
+
+  - assert:
+      variable: all_required_result.target_raw.contact_email
+      equals: "john@example.com"
+      message: Should map required email field
+
+  # ============================================
+  # Test 2: Optional field missing uses default
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Optional Field Missing Test"
+        source_raw:
+          name: "Jane Doe"
+        source_fields:
+          - id: name
+            path: "name"
+            type: string
+            required: true
+          - id: nickname
+            path: "nickname"
+            type: string
+            required: false
+        target_fields:
+          - id: display_name
+            path: "display_name"
+            type: string
+        steps:
+          - id: use_nickname_or_name
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "Guest"
+        links:
+          - source:
+              field_id: nickname
+            target:
+              step_id: use_nickname_or_name
+          - source:
+              step_id: use_nickname_or_name
+            target:
+              field_id: display_name
+      expect:
+        status: 200
+      save_as: optional_missing_result
+
+  - assert:
+      variable: optional_missing_result.target_raw.display_name
+      equals: "Guest"
+      message: Should use default when optional field missing
+
+  # ============================================
+  # Test 3: Optional field provided overrides default
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Optional Field Provided Test"
+        source_raw:
+          name: "Jane Doe"
+          nickname: "JD"
+        source_fields:
+          - id: name
+            path: "name"
+            type: string
+            required: true
+          - id: nickname
+            path: "nickname"
+            type: string
+            required: false
+        target_fields:
+          - id: display_name
+            path: "display_name"
+            type: string
+        steps:
+          - id: use_nickname_or_name
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "Guest"
+        links:
+          - source:
+              field_id: nickname
+            target:
+              step_id: use_nickname_or_name
+          - source:
+              step_id: use_nickname_or_name
+            target:
+              field_id: display_name
+      expect:
+        status: 200
+      save_as: optional_provided_result
+
+  - assert:
+      variable: optional_provided_result.target_raw.display_name
+      equals: "JD"
+      message: Should use provided value over default
+
+  # ============================================
+  # Test 4: Coalesce first non-empty value
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Coalesce Test"
+        source_raw:
+          primary_phone: ""
+          secondary_phone: "+1-555-1234"
+          backup_phone: "+1-555-9999"
+        source_fields:
+          - id: primary_phone
+            path: "primary_phone"
+            type: string
+          - id: secondary_phone
+            path: "secondary_phone"
+            type: string
+          - id: backup_phone
+            path: "backup_phone"
+            type: string
+        target_fields:
+          - id: contact_phone
+            path: "contact_phone"
+            type: string
+        steps:
+          - id: coalesce_phones
+            type: transformer
+            action:
+              key: any_coalesce
+        links:
+          - source:
+              field_id: primary_phone
+            target:
+              step_id: coalesce_phones
+          - source:
+              field_id: secondary_phone
+            target:
+              step_id: coalesce_phones
+          - source:
+              step_id: coalesce_phones
+            target:
+              field_id: contact_phone
+      expect:
+        status: 200
+      save_as: coalesce_result
+
+  - assert:
+      variable: coalesce_result.target_raw.contact_phone
+      equals: "+1-555-1234"
+      message: Should use first non-empty value
+
+  # ============================================
+  # Test 5: Default with null field
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Default with Null Test"
+        source_raw:
+          status: null
+        source_fields:
+          - id: status
+            path: "status"
+            type: string
+        target_fields:
+          - id: current_status
+            path: "current_status"
+            type: string
+        steps:
+          - id: default_status
+            type: transformer
+            action:
+              key: any_default
+              arguments:
+                default: "pending"
+        links:
+          - source:
+              field_id: status
+            target:
+              step_id: default_status
+          - source:
+              step_id: default_status
+            target:
+              field_id: current_status
+      expect:
+        status: 200
+      save_as: null_default_result
+
+  - assert:
+      variable: null_default_result.target_raw.current_status
+      equals: "pending"
+      message: Should use default for null value

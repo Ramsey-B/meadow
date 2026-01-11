@@ -1,0 +1,338 @@
+name: Lotus Nested Data Extraction Tests
+description: Tests extracting data from nested objects and arrays
+
+steps:
+  # ============================================
+  # Test 1: Extract nested object property
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Nested Object Extraction"
+        source_raw:
+          user:
+            profile:
+              name: "John Doe"
+              email: "john@example.com"
+            settings:
+              theme: "dark"
+        source_fields:
+          - id: user
+            path: "user"
+            type: object
+        target_fields:
+          - id: user_name
+            path: "user_name"
+            type: string
+          - id: user_email
+            path: "user_email"
+            type: string
+          - id: user_theme
+            path: "user_theme"
+            type: string
+        steps:
+          - id: get_name
+            type: transformer
+            action:
+              key: object_get
+              arguments:
+                path: "profile.name"
+          - id: get_email
+            type: transformer
+            action:
+              key: object_get
+              arguments:
+                path: "profile.email"
+          - id: get_theme
+            type: transformer
+            action:
+              key: object_get
+              arguments:
+                path: "settings.theme"
+        links:
+          - source:
+              field_id: user
+            target:
+              step_id: get_name
+          - source:
+              field_id: user
+            target:
+              step_id: get_email
+          - source:
+              field_id: user
+            target:
+              step_id: get_theme
+          - source:
+              step_id: get_name
+            target:
+              field_id: user_name
+          - source:
+              step_id: get_email
+            target:
+              field_id: user_email
+          - source:
+              step_id: get_theme
+            target:
+              field_id: user_theme
+      expect:
+        status: 200
+      save_as: nested_result
+
+  - assert:
+      variable: nested_result.target_raw.user_name
+      equals: "John Doe"
+      message: Should extract nested name
+
+  - assert:
+      variable: nested_result.target_raw.user_email
+      equals: "john@example.com"
+      message: Should extract nested email
+
+  - assert:
+      variable: nested_result.target_raw.user_theme
+      equals: "dark"
+      message: Should extract nested theme
+
+  # ============================================
+  # Test 2: Extract from deeply nested structure
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Deep Nested Extraction"
+        source_raw:
+          company:
+            departments:
+              engineering:
+                head:
+                  name: "Alice Smith"
+                  title: "VP of Engineering"
+        source_fields:
+          - id: company
+            path: "company"
+            type: object
+        target_fields:
+          - id: dept_head_name
+            path: "dept_head_name"
+            type: string
+        steps:
+          - id: get_head_name
+            type: transformer
+            action:
+              key: object_get
+              arguments:
+                path: "departments.engineering.head.name"
+        links:
+          - source:
+              field_id: company
+            target:
+              step_id: get_head_name
+          - source:
+              step_id: get_head_name
+            target:
+              field_id: dept_head_name
+      expect:
+        status: 200
+      save_as: deep_nested_result
+
+  - assert:
+      variable: deep_nested_result.target_raw.dept_head_name
+      equals: "Alice Smith"
+      message: Should extract deeply nested value
+
+  # ============================================
+  # Test 3: Pick specific fields from nested object
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Pick Nested Fields"
+        source_raw:
+          record:
+            id: "rec-123"
+            name: "Test Record"
+            metadata:
+              created_at: "2024-01-01"
+              updated_at: "2024-06-15"
+            internal:
+              secret: "should-not-appear"
+        source_fields:
+          - id: record
+            path: "record"
+            type: object
+        target_fields:
+          - id: clean_record
+            path: "clean_record"
+            type: object
+        steps:
+          - id: pick_fields
+            type: transformer
+            action:
+              key: object_pick
+              arguments:
+                keys:
+                  - "id"
+                  - "name"
+        links:
+          - source:
+              field_id: record
+            target:
+              step_id: pick_fields
+          - source:
+              step_id: pick_fields
+            target:
+              field_id: clean_record
+      expect:
+        status: 200
+      save_as: pick_result
+
+  - assert:
+      variable: pick_result.target_raw.clean_record.id
+      equals: "rec-123"
+      message: Picked object should have id
+
+  - assert:
+      variable: pick_result.target_raw.clean_record.name
+      equals: "Test Record"
+      message: Picked object should have name
+
+  - assert:
+      variable: pick_result.target_raw.clean_record.secret
+      is_nil: true
+      message: Picked object should not have secret field
+
+  # ============================================
+  # Test 4: Omit sensitive fields from object
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Omit Sensitive Fields"
+        source_raw:
+          user_data:
+            name: "Jane Doe"
+            email: "jane@example.com"
+            password: "secret123"
+            ssn: "123-45-6789"
+            role: "admin"
+        source_fields:
+          - id: user_data
+            path: "user_data"
+            type: object
+        target_fields:
+          - id: safe_user
+            path: "safe_user"
+            type: object
+        steps:
+          - id: omit_sensitive
+            type: transformer
+            action:
+              key: object_omit
+              arguments:
+                keys:
+                  - "password"
+                  - "ssn"
+        links:
+          - source:
+              field_id: user_data
+            target:
+              step_id: omit_sensitive
+          - source:
+              step_id: omit_sensitive
+            target:
+              field_id: safe_user
+      expect:
+        status: 200
+      save_as: omit_result
+
+  - assert:
+      variable: omit_result.target_raw.safe_user.name
+      equals: "Jane Doe"
+      message: Safe user should have name
+
+  - assert:
+      variable: omit_result.target_raw.safe_user.email
+      equals: "jane@example.com"
+      message: Safe user should have email
+
+  - assert:
+      variable: omit_result.target_raw.safe_user.password
+      is_nil: true
+      message: Safe user should not have password
+
+  - assert:
+      variable: omit_result.target_raw.safe_user.ssn
+      is_nil: true
+      message: Safe user should not have ssn
+
+  # ============================================
+  # Test 5: Merge multiple objects
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Merge Objects Test"
+        source_raw:
+          base_config:
+            timeout: 30
+            retries: 3
+          override_config:
+            timeout: 60
+            debug: true
+        source_fields:
+          - id: base_config
+            path: "base_config"
+            type: object
+          - id: override_config
+            path: "override_config"
+            type: object
+        target_fields:
+          - id: merged_config
+            path: "merged_config"
+            type: object
+        steps:
+          - id: merge_configs
+            type: transformer
+            action:
+              key: object_merge
+        links:
+          - source:
+              field_id: base_config
+            target:
+              step_id: merge_configs
+          - source:
+              field_id: override_config
+            target:
+              step_id: merge_configs
+          - source:
+              step_id: merge_configs
+            target:
+              field_id: merged_config
+      expect:
+        status: 200
+      save_as: merge_result
+
+  - assert:
+      variable: merge_result.target_raw.merged_config.timeout
+      equals: 60
+      message: Merged config should have overridden timeout
+
+  - assert:
+      variable: merge_result.target_raw.merged_config.retries
+      equals: 3
+      message: Merged config should keep base retries
+
+  - assert:
+      variable: merge_result.target_raw.merged_config.debug
+      equals: true
+      message: Merged config should have new debug field

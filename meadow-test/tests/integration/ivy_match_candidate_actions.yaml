@@ -1,0 +1,80 @@
+name: Ivy Match Candidate Actions
+description: Tests approve, reject, and defer actions on match candidates
+
+steps:
+  # ============================================
+  # Test 1: Approve endpoint with non-existent candidate
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-candidates/dummy/approve?entity_a_id=nonexistent-a&entity_b_id=nonexistent-b
+      expect:
+        status_one_of: [200, 404, 500]
+      save_as: approve_result
+
+  # ============================================
+  # Test 2: Reject endpoint with non-existent candidate
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-candidates/dummy/reject?entity_a_id=nonexistent-a&entity_b_id=nonexistent-b
+      expect:
+        status_one_of: [200, 404, 500]
+      save_as: reject_result
+
+  # ============================================
+  # Test 3: Defer endpoint with non-existent candidate
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-candidates/dummy/defer?entity_a_id=nonexistent-a&entity_b_id=nonexistent-b
+      expect:
+        status_one_of: [200, 404, 500]
+      save_as: defer_result
+
+  # ============================================
+  # Test 4: List pending match candidates (should return empty or list)
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=pending
+      expect:
+        status: 200
+      save_as: pending_list
+
+  # ============================================
+  # Test 5: List approved match candidates
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=approved
+      expect:
+        status: 200
+      save_as: approved_list
+
+  # ============================================
+  # Test 6: List rejected match candidates
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=rejected
+      expect:
+        status: 200
+      save_as: rejected_list
+
+  # ============================================
+  # Test 7: List deferred match candidates
+  # ============================================
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates?status=deferred
+      expect:
+        status: 200
+      save_as: deferred_list

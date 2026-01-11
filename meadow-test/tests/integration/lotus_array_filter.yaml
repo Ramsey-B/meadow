@@ -1,0 +1,334 @@
+name: Lotus Array Filter Tests
+description: |
+  Tests array filtering using the array_filter action:
+  - Filter items based on a predicate action
+  - Support for invert (keep items that fail)
+
+steps:
+  # ============================================
+  # Test 1: Filter strings - keep non-empty
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Filter Non-Empty Strings"
+        source_raw:
+          values:
+            - "hello"
+            - ""
+            - "world"
+            - ""
+            - "test"
+        source_fields:
+          - id: values
+            path: "values"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: non_empty
+            path: "non_empty"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: filter_non_empty
+            type: transformer
+            action:
+              key: array_filter
+              arguments:
+                actionKey: any_is_empty
+                invert: true
+        links:
+          - source:
+              field_id: values
+            target:
+              step_id: filter_non_empty
+          - source:
+              step_id: filter_non_empty
+            target:
+              field_id: non_empty
+      expect:
+        status: 200
+      save_as: non_empty_result
+
+  - assert:
+      variable: non_empty_result.target_raw.non_empty
+      contains: "hello"
+      message: Should contain hello
+
+  - assert:
+      variable: non_empty_result.target_raw.non_empty
+      contains: "world"
+      message: Should contain world
+
+  - assert:
+      variable: non_empty_result.target_raw.non_empty
+      contains: "test"
+      message: Should contain test
+
+  # ============================================
+  # Test 2: Filter using text_contains predicate
+  # Keep only items containing "active"
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Filter by Text Contains"
+        source_raw:
+          statuses:
+            - "active_user"
+            - "inactive"
+            - "active_admin"
+            - "pending"
+            - "active_guest"
+        source_fields:
+          - id: statuses
+            path: "statuses"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: active_only
+            path: "active_only"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: filter_active
+            type: transformer
+            action:
+              key: array_filter
+              arguments:
+                actionKey: text_contains
+                args:
+                  substring: "active"
+        links:
+          - source:
+              field_id: statuses
+            target:
+              step_id: filter_active
+          - source:
+              step_id: filter_active
+            target:
+              field_id: active_only
+      expect:
+        status: 200
+      save_as: active_result
+
+  - assert:
+      variable: active_result.target_raw.active_only
+      contains: "active_user"
+      message: Should contain active_user
+
+  - assert:
+      variable: active_result.target_raw.active_only
+      contains: "active_admin"
+      message: Should contain active_admin
+
+  - assert:
+      variable: active_result.target_raw.active_only
+      contains: "active_guest"
+      message: Should contain active_guest
+
+  # ============================================
+  # Test 3: Filter with invert - keep items that FAIL
+  # Keep only items NOT containing "test"
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Filter Invert - Exclude Pattern"
+        source_raw:
+          items:
+            - "production_server"
+            - "test_server"
+            - "staging_server"
+            - "test_database"
+            - "main_database"
+        source_fields:
+          - id: items
+            path: "items"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: non_test
+            path: "non_test"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: exclude_test
+            type: transformer
+            action:
+              key: array_filter
+              arguments:
+                actionKey: text_contains
+                args:
+                  substring: "test"
+                invert: true
+        links:
+          - source:
+              field_id: items
+            target:
+              step_id: exclude_test
+          - source:
+              step_id: exclude_test
+            target:
+              field_id: non_test
+      expect:
+        status: 200
+      save_as: exclude_result
+
+  - assert:
+      variable: exclude_result.target_raw.non_test
+      contains: "production_server"
+      message: Should contain production_server
+
+  - assert:
+      variable: exclude_result.target_raw.non_test
+      contains: "staging_server"
+      message: Should contain staging_server
+
+  - assert:
+      variable: exclude_result.target_raw.non_test
+      contains: "main_database"
+      message: Should contain main_database
+
+  # ============================================
+  # Test 4: Filter using text_starts_with predicate
+  # Keep only items starting with "active"
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Filter by Starts With"
+        source_raw:
+          user_statuses:
+            - "active_user"
+            - "inactive_user"
+            - "active_admin"
+            - "pending_user"
+            - "active_guest"
+        source_fields:
+          - id: user_statuses
+            path: "user_statuses"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: active_users
+            path: "active_users"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: filter_starts_active
+            type: transformer
+            action:
+              key: array_filter
+              arguments:
+                actionKey: text_starts_with
+                args:
+                  prefix: "active"
+        links:
+          - source:
+              field_id: user_statuses
+            target:
+              step_id: filter_starts_active
+          - source:
+              step_id: filter_starts_active
+            target:
+              field_id: active_users
+      expect:
+        status: 200
+      save_as: starts_result
+
+  - assert:
+      variable: starts_result.target_raw.active_users
+      contains: "active_user"
+      message: Should contain active_user
+
+  - assert:
+      variable: starts_result.target_raw.active_users
+      contains: "active_admin"
+      message: Should contain active_admin
+
+  - assert:
+      variable: starts_result.target_raw.active_users
+      contains: "active_guest"
+      message: Should contain active_guest
+
+  # ============================================
+  # Test 5: Filter and then transform
+  # Filter non-empty, then uppercase
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Filter Then Transform"
+        source_raw:
+          tags:
+            - "important"
+            - ""
+            - "urgent"
+            - ""
+            - "critical"
+        source_fields:
+          - id: tags
+            path: "tags"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: processed_tags
+            path: "processed_tags"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: filter_tags
+            type: transformer
+            action:
+              key: array_filter
+              arguments:
+                actionKey: any_is_empty
+                invert: true
+        links:
+          - source:
+              field_id: tags
+            target:
+              step_id: filter_tags
+          - source:
+              step_id: filter_tags
+            target:
+              field_id: processed_tags
+      expect:
+        status: 200
+      save_as: chain_result
+
+  - assert:
+      variable: chain_result.target_raw.processed_tags
+      contains: "important"
+      message: Should contain important
+
+  - assert:
+      variable: chain_result.target_raw.processed_tags
+      contains: "urgent"
+      message: Should contain urgent
+
+  - assert:
+      variable: chain_result.target_raw.processed_tags
+      contains: "critical"
+      message: Should contain critical

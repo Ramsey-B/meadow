@@ -1,0 +1,472 @@
+name: Lotus Aggregate Steps Tests
+description: Tests text concatenation and array operations for aggregating data
+
+steps:
+  # ============================================
+  # Test 1: Text concatenation - join two strings
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Concat Two Strings"
+        source_raw:
+          first_name: "John"
+          last_name: "Doe"
+        source_fields:
+          - id: first_name
+            path: "first_name"
+            type: string
+          - id: last_name
+            path: "last_name"
+            type: string
+        target_fields:
+          - id: full_name
+            path: "full_name"
+            type: string
+        steps:
+          - id: concat_names
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: " "
+        links:
+          - source:
+              field_id: first_name
+            target:
+              step_id: concat_names
+          - source:
+              field_id: last_name
+            target:
+              step_id: concat_names
+          - source:
+              step_id: concat_names
+            target:
+              field_id: full_name
+      expect:
+        status: 200
+      save_as: concat_result
+
+  - assert:
+      variable: concat_result.target_raw.full_name
+      equals: "John Doe"
+      message: Should concatenate first and last name with space
+
+  # ============================================
+  # Test 2: Text concatenation - with custom separator
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Concat Custom Separator"
+        source_raw:
+          domain: "example"
+          tld: "com"
+        source_fields:
+          - id: domain
+            path: "domain"
+            type: string
+          - id: tld
+            path: "tld"
+            type: string
+        target_fields:
+          - id: hostname
+            path: "hostname"
+            type: string
+        steps:
+          - id: concat_hostname
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: "."
+        links:
+          - source:
+              field_id: domain
+            target:
+              step_id: concat_hostname
+          - source:
+              field_id: tld
+            target:
+              step_id: concat_hostname
+          - source:
+              step_id: concat_hostname
+            target:
+              field_id: hostname
+      expect:
+        status: 200
+      save_as: hostname_result
+
+  - assert:
+      variable: hostname_result.target_raw.hostname
+      equals: "example.com"
+      message: Should concatenate with dot separator
+
+  # ============================================
+  # Test 3: Array push - add element to array
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Push Test"
+        source_raw:
+          existing_items:
+            - "apple"
+            - "banana"
+          new_item: "cherry"
+        source_fields:
+          - id: existing_items
+            path: "existing_items"
+            type: array
+            items:
+              type: string
+          - id: new_item
+            path: "new_item"
+            type: string
+        target_fields:
+          - id: all_items
+            path: "all_items"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: push_item
+            type: transformer
+            action:
+              key: array_push
+        links:
+          - source:
+              field_id: existing_items
+            target:
+              step_id: push_item
+          - source:
+              field_id: new_item
+            target:
+              step_id: push_item
+          - source:
+              step_id: push_item
+            target:
+              field_id: all_items
+      expect:
+        status: 200
+      save_as: push_result
+
+  - assert:
+      variable: push_result.target_raw.all_items
+      contains: "cherry"
+      message: Array should contain pushed item "cherry"
+
+  - assert:
+      variable: push_result.target_raw.all_items
+      contains: "apple"
+      message: Array should still contain original items
+
+  # ============================================
+  # Test 5: Text concat with three strings
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Text Concat Three Strings"
+        source_raw:
+          street: "123 Main St"
+          city: "Springfield"
+          state: "IL"
+        source_fields:
+          - id: street
+            path: "street"
+            type: string
+          - id: city
+            path: "city"
+            type: string
+          - id: state
+            path: "state"
+            type: string
+        target_fields:
+          - id: address
+            path: "address"
+            type: string
+        steps:
+          - id: concat_address
+            type: transformer
+            action:
+              key: text_concat
+              arguments:
+                separator: ", "
+        links:
+          - source:
+              field_id: street
+            target:
+              step_id: concat_address
+          - source:
+              field_id: city
+            target:
+              step_id: concat_address
+          - source:
+              field_id: state
+            target:
+              step_id: concat_address
+          - source:
+              step_id: concat_address
+            target:
+              field_id: address
+      expect:
+        status: 200
+      save_as: address_result
+
+  - assert:
+      variable: address_result.target_raw.address
+      contains: "123 Main St"
+      message: Address should contain street
+
+  - assert:
+      variable: address_result.target_raw.address
+      contains: "Springfield"
+      message: Address should contain city
+
+  # ============================================
+  # Test 6: Array length check
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Length Test"
+        source_raw:
+          items:
+            - "one"
+            - "two"
+            - "three"
+            - "four"
+            - "five"
+        source_fields:
+          - id: items
+            path: "items"
+            type: array
+            items:
+              type: string
+        target_fields:
+          - id: count
+            path: "count"
+            type: number
+        steps:
+          - id: get_length
+            type: transformer
+            action:
+              key: array_length
+        links:
+          - source:
+              field_id: items
+            target:
+              step_id: get_length
+          - source:
+              step_id: get_length
+            target:
+              field_id: count
+      expect:
+        status: 200
+      save_as: length_result
+
+  - assert:
+      variable: length_result.target_raw.count
+      equals: 5
+      message: Array length should be 5
+
+  # ============================================
+  # Test 7: Array contains check
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Contains Test"
+        source_raw:
+          tags:
+            - "urgent"
+            - "priority"
+            - "reviewed"
+          check_tag: "priority"
+        source_fields:
+          - id: tags
+            path: "tags"
+            type: array
+            items:
+              type: string
+          - id: check_tag
+            path: "check_tag"
+            type: string
+        target_fields:
+          - id: has_priority
+            path: "has_priority"
+            type: bool
+        steps:
+          - id: check_contains
+            type: transformer
+            action:
+              key: array_contains
+        links:
+          - source:
+              field_id: tags
+            target:
+              step_id: check_contains
+          - source:
+              field_id: check_tag
+            target:
+              step_id: check_contains
+          - source:
+              step_id: check_contains
+            target:
+              field_id: has_priority
+      expect:
+        status: 200
+      save_as: contains_result
+
+  - assert:
+      variable: contains_result.target_raw.has_priority
+      equals: true
+      message: Array should contain "priority"
+
+  # ============================================
+  # Test 8: Collect multiple values into array using push
+  # Start with an existing array and push additional items
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Collect Into Array Test"
+        source_raw:
+          initial_array:
+            - "alpha"
+          second_value: "beta"
+          third_value: "gamma"
+        source_fields:
+          - id: initial_array
+            path: "initial_array"
+            type: array
+            items:
+              type: string
+          - id: second_value
+            path: "second_value"
+            type: string
+          - id: third_value
+            path: "third_value"
+            type: string
+        target_fields:
+          - id: collected
+            path: "collected"
+            type: array
+            items:
+              type: string
+        steps:
+          # Push second value to initial array
+          - id: push_second
+            type: transformer
+            action:
+              key: array_push
+          # Push third value
+          - id: push_third
+            type: transformer
+            action:
+              key: array_push
+        links:
+          - source:
+              field_id: initial_array
+            target:
+              step_id: push_second
+          - source:
+              field_id: second_value
+            target:
+              step_id: push_second
+          - source:
+              step_id: push_second
+            target:
+              step_id: push_third
+          - source:
+              field_id: third_value
+            target:
+              step_id: push_third
+          - source:
+              step_id: push_third
+            target:
+              field_id: collected
+      expect:
+        status: 200
+      save_as: collect_result
+
+  - assert:
+      variable: collect_result.target_raw.collected
+      contains: "alpha"
+      message: Collected array should contain initial value
+
+  - assert:
+      variable: collect_result.target_raw.collected
+      contains: "beta"
+      message: Collected array should contain second value
+
+  - assert:
+      variable: collect_result.target_raw.collected
+      contains: "gamma"
+      message: Collected array should contain third value
+
+  # ============================================
+  # Test 9: Split text into array (alternative collection method)
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Split Text Into Array Test"
+        source_raw:
+          csv_values: "red,green,blue,yellow"
+        source_fields:
+          - id: csv_values
+            path: "csv_values"
+            type: string
+        target_fields:
+          - id: colors
+            path: "colors"
+            type: array
+            items:
+              type: string
+        steps:
+          - id: split_csv
+            type: transformer
+            action:
+              key: text_split
+              arguments:
+                separator: ","
+        links:
+          - source:
+              field_id: csv_values
+            target:
+              step_id: split_csv
+          - source:
+              step_id: split_csv
+            target:
+              field_id: colors
+      expect:
+        status: 200
+      save_as: split_result
+
+  - assert:
+      variable: split_result.target_raw.colors
+      contains: "red"
+      message: Split array should contain red
+
+  - assert:
+      variable: split_result.target_raw.colors
+      contains: "blue"
+      message: Split array should contain blue

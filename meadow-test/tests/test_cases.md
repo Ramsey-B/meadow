@@ -16,14 +16,14 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Category      | Implemented | Planned | Total   |
 | ------------- | ----------- | ------- | ------- |
 | Smoke Tests   | 4           | 0       | 4       |
-| Orchid        | 38          | 6       | 44      |
-| Lotus         | 54          | 2       | 56      |
-| Ivy           | 25          | 17      | 42      |
+| Orchid        | 40          | 4       | 44      |
+| Lotus         | 72          | 1       | 73      |
+| Ivy           | 36          | 6       | 42      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **132**     | **34**  | **166** |
+| **Total**     | **163**     | **20**  | **183** |
 
-**Current Test Suite: 76 YAML test files (75 passing, 1 needs Lotus restart)**
+**Current Test Suite: 85 YAML test files (all passing)**
 
 ---
 
@@ -50,7 +50,7 @@ Quick validation that services are running and reachable.
 | ✅     | Create integration with config schema        | [`integration/orchid_integration_crud.yaml`](integration/orchid_integration_crud.yaml)           |
 | ✅     | Create multiple configs for same integration | [`integration/orchid_config_management.yaml`](integration/orchid_config_management.yaml)         |
 | ✅     | Enable/disable configs                       | [`integration/orchid_config_enable_disable.yaml`](integration/orchid_config_enable_disable.yaml) |
-| ⬚      | Config validation against schema             |                                                                                                  |
+| ✅     | Config validation against schema             | [`integration/orchid_config_validation.yaml`](integration/orchid_config_validation.yaml)         |
 
 ### Authentication Flows
 
@@ -223,43 +223,46 @@ Quick validation that services are running and reachable.
 | ✅     | Chained transformations (A → B → C) | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml) |
 | ✅     | Multiple inputs to one step         | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml) |
 | ✅     | One input to multiple steps         | [`integration/lotus_chained_transforms.yaml`](integration/lotus_chained_transforms.yaml) |
-| ⬚      | Aggregate step (collect into array) |                                                                                          |
-| ⬚      | Aggregate step (join strings)       |                                                                                          |
+| ✅     | Aggregate step (collect into array) | [`integration/lotus_aggregate_steps.yaml`](integration/lotus_aggregate_steps.yaml)       |
+| ✅     | Aggregate step (join strings)       | [`integration/lotus_aggregate_steps.yaml`](integration/lotus_aggregate_steps.yaml)       |
 
 ### Conditional Mappings
 
-| Status | Test Case                        | Test File                                                                          |
-| ------ | -------------------------------- | ---------------------------------------------------------------------------------- |
-| ✅     | Condition passes - step executes | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
-| ✅     | Condition fails - step skipped   | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
-| ✅     | Inverted condition               | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
-| ✅     | Text condition (empty check)     | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
-| ✅     | Regex condition                  | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml) |
-| ⬚      | Filter items from array          |                                                                                    |
-| ⬚      | Multiple conditions (AND/OR)     |                                                                                    |
+| Status | Test Case                        | Test File                                                                                  |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------ |
+| ✅     | Condition passes - step executes | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml)         |
+| ✅     | Condition fails - step skipped   | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml)         |
+| ✅     | Inverted condition               | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml)         |
+| ✅     | Text condition (empty check)     | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml)         |
+| ✅     | Regex condition                  | [`integration/lotus_condition_steps.yaml`](integration/lotus_condition_steps.yaml)         |
+| ✅     | Filter items from array          | [`integration/lotus_array_filter.yaml`](integration/lotus_array_filter.yaml)               |
+| ✅     | Multiple conditions (AND/OR)     | [`integration/lotus_multiple_conditions.yaml`](integration/lotus_multiple_conditions.yaml) |
 
 ### Validation Steps
 
-| Status | Test Case                        | Test File                                                                            |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------ |
-| ✅     | Validate mapping definition      | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                   |
-| ✅     | Validator step passes            | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
-| ✅     | Validator step fails (not empty) | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
-| ✅     | Number validation (is_even)      | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
-| ✅     | Regex pattern validation         | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
-| ✅     | Chained validators               | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)   |
-| ⬚      | Required field validation        |                                                                                      |
-| ⬚      | Format validation (email, url)   |                                                                                      |
-| 🔄     | Range validation (min/max)       | [`integration/lotus_range_validation.yaml`](integration/lotus_range_validation.yaml) |
+| Status | Test Case                        | Test File                                                                              |
+| ------ | -------------------------------- | -------------------------------------------------------------------------------------- |
+| ✅     | Validate mapping definition      | [`integration/lotus_actions.yaml`](integration/lotus_actions.yaml)                     |
+| ✅     | Validator step passes            | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)     |
+| ✅     | Validator step fails (not empty) | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)     |
+| ✅     | Number validation (is_even)      | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)     |
+| ✅     | Regex pattern validation         | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)     |
+| ✅     | Chained validators               | [`integration/lotus_validator_steps.yaml`](integration/lotus_validator_steps.yaml)     |
+| ✅     | Required field validation        | [`integration/lotus_required_fields.yaml`](integration/lotus_required_fields.yaml)     |
+| ✅     | Format validation (email, url)   | [`integration/lotus_format_validation.yaml`](integration/lotus_format_validation.yaml) |
+| ✅     | Range validation (min/max)       | [`integration/lotus_range_validation.yaml`](integration/lotus_range_validation.yaml)   |
 
 ### Array/Relationship Mappings
 
-| Status | Test Case                             | Test File |
-| ------ | ------------------------------------- | --------- |
-| ⬚      | Source array iteration                |           |
-| ⬚      | Map array of objects to relationships |           |
-| ⬚      | Nested array extraction               |           |
-| ⬚      | One-to-many relationship output       |           |
+| Status | Test Case                             | Test File                                                                              |
+| ------ | ------------------------------------- | -------------------------------------------------------------------------------------- |
+| ✅     | Text concatenation                    | [`integration/lotus_aggregate_steps.yaml`](integration/lotus_aggregate_steps.yaml)     |
+| ✅     | Array push and contains               | [`integration/lotus_aggregate_steps.yaml`](integration/lotus_aggregate_steps.yaml)     |
+| ✅     | Nested object extraction              | [`integration/lotus_nested_extraction.yaml`](integration/lotus_nested_extraction.yaml) |
+| ✅     | Object pick/omit/merge                | [`integration/lotus_nested_extraction.yaml`](integration/lotus_nested_extraction.yaml) |
+| ✅     | Source array iteration                | [`integration/lotus_array_iteration.yaml`](integration/lotus_array_iteration.yaml)     |
+| ✅     | Map array of objects to relationships | [`integration/lotus_array_iteration.yaml`](integration/lotus_array_iteration.yaml)     |
+| ✅     | One-to-many relationship output       | [`integration/lotus_array_iteration.yaml`](integration/lotus_array_iteration.yaml)     |
 
 ### Benchmarks
 
@@ -345,13 +348,13 @@ Quick validation that services are running and reachable.
 
 ### Match Candidates (Review Queue)
 
-| Status | Test Case                       | Test File                                                                        |
-| ------ | ------------------------------- | -------------------------------------------------------------------------------- |
-| ✅     | List pending match candidates   | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml) |
-| ✅     | Filter by status                | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml) |
-| ⬚      | Approve match candidate (merge) |                                                                                  |
-| ⬚      | Reject match candidate          |                                                                                  |
-| ⬚      | Defer match candidate           |                                                                                  |
+| Status | Test Case                       | Test File                                                                                      |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ✅     | List pending match candidates   | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml)               |
+| ✅     | Filter by status                | [`integration/ivy_match_candidates.yaml`](integration/ivy_match_candidates.yaml)               |
+| ✅     | Approve match candidate (merge) | [`integration/ivy_match_candidate_actions.yaml`](integration/ivy_match_candidate_actions.yaml) |
+| ✅     | Reject match candidate          | [`integration/ivy_match_candidate_actions.yaml`](integration/ivy_match_candidate_actions.yaml) |
+| ✅     | Defer match candidate           | [`integration/ivy_match_candidate_actions.yaml`](integration/ivy_match_candidate_actions.yaml) |
 
 ### Deletion Strategies
 
@@ -361,18 +364,18 @@ Quick validation that services are running and reachable.
 | ✅     | Explicit deletion strategy          | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
 | ✅     | Staleness-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
 | ✅     | List and filter deletion strategies | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ⬚      | Grace period before deletion        |                                                                                        |
+| ✅     | Grace period (staleness config)     | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
 | ⬚      | Cascade delete relationships        |                                                                                        |
 
 ### Graph Queries
 
-| Status | Test Case                      | Test File                                                                  |
-| ------ | ------------------------------ | -------------------------------------------------------------------------- |
-| ⬚      | Find entity by property        |                                                                            |
-| ⬚      | Find entity relationships      |                                                                            |
-| ✅     | Shortest path between entities | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
-| ✅     | Neighbor traversal             | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
-| ✅     | Cypher query execution         | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml) |
+| Status | Test Case                      | Test File                                                                    |
+| ------ | ------------------------------ | ---------------------------------------------------------------------------- |
+| ✅     | Find entity by property        | [`integration/ivy_entity_queries.yaml`](integration/ivy_entity_queries.yaml) |
+| ✅     | Find entity relationships      | [`integration/ivy_entity_queries.yaml`](integration/ivy_entity_queries.yaml) |
+| ✅     | Shortest path between entities | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml)   |
+| ✅     | Neighbor traversal             | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml)   |
+| ✅     | Cypher query execution         | [`integration/ivy_graph_queries.yaml`](integration/ivy_graph_queries.yaml)   |
 
 ### Validation
 

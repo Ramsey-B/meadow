@@ -1,0 +1,363 @@
+name: Lotus Array Iteration and Relationship Mapping Tests
+description: |
+  Tests iterating over source arrays and mapping to output arrays:
+  - Source array iteration (transform each item)
+  - Map array of objects to relationships
+  - One-to-many relationship output
+
+steps:
+  # ============================================
+  # Test 1: Simple array iteration - extract field from each object
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array Iteration - Extract Names"
+        source_raw:
+          users:
+            - id: "u1"
+              name: "Alice"
+            - id: "u2"
+              name: "Bob"
+            - id: "u3"
+              name: "Charlie"
+        source_fields:
+          - id: users
+            path: "users"
+            type: array
+            items:
+              id: user
+              type: object
+              fields:
+                - id: user_id
+                  path: "id"
+                  type: string
+                - id: user_name
+                  path: "name"
+                  type: string
+        target_fields:
+          - id: names
+            path: "names"
+            type: array
+            items:
+              id: name_item
+              type: string
+        steps: []
+        links:
+          - source:
+              field_id: user_name
+            target:
+              field_id: name_item
+      expect:
+        status: 200
+      save_as: extract_names_result
+
+  - assert:
+      variable: extract_names_result.target_raw.names
+      contains: "Alice"
+      message: Should extract Alice from users array
+
+  - assert:
+      variable: extract_names_result.target_raw.names
+      contains: "Bob"
+      message: Should extract Bob from users array
+
+  - assert:
+      variable: extract_names_result.target_raw.names
+      contains: "Charlie"
+      message: Should extract Charlie from users array
+
+  # ============================================
+  # Test 2: Map array of objects to relationship objects
+  # One owner -> multiple devices = multiple relationship records
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Array to Relationships"
+        source_raw:
+          owner_id: "person-123"
+          devices:
+            - device_id: "device-001"
+              device_name: "Laptop"
+            - device_id: "device-002"
+              device_name: "Phone"
+        source_fields:
+          - id: owner_id
+            path: "owner_id"
+            type: string
+          - id: devices
+            path: "devices"
+            type: array
+            items:
+              id: device
+              type: object
+              fields:
+                - id: device_id
+                  path: "device_id"
+                  type: string
+                - id: device_name
+                  path: "device_name"
+                  type: string
+        target_fields:
+          - id: relationships
+            path: "relationships"
+            type: array
+            items:
+              id: rel
+              type: object
+              fields:
+                - id: rel_type
+                  path: "relationship_type"
+                  type: string
+                - id: from_type
+                  path: "from_entity_type"
+                  type: string
+                - id: from_id
+                  path: "from_source_id"
+                  type: string
+                - id: to_type
+                  path: "to_entity_type"
+                  type: string
+                - id: to_id
+                  path: "to_source_id"
+                  type: string
+        steps: []
+        links:
+          # Constants for relationship metadata
+          - source:
+              constant: "owns"
+            target:
+              field_id: rel_type
+          - source:
+              constant: "person"
+            target:
+              field_id: from_type
+          - source:
+              constant: "device"
+            target:
+              field_id: to_type
+          # Map owner_id to from_source_id (broadcast to each relationship)
+          - source:
+              field_id: owner_id
+            target:
+              field_id: from_id
+          # Map device_id from each device to to_source_id (one per device)
+          - source:
+              field_id: device_id
+            target:
+              field_id: to_id
+      expect:
+        status: 200
+      save_as: relationships_result
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[0].relationship_type
+      equals: "owns"
+      message: First relationship type should be "owns"
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[0].from_entity_type
+      equals: "person"
+      message: First relationship from_type should be "person"
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[0].from_source_id
+      equals: "person-123"
+      message: First relationship from_id should be owner_id
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[0].to_entity_type
+      equals: "device"
+      message: First relationship to_type should be "device"
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[0].to_source_id
+      equals: "device-001"
+      message: First relationship to_id should be first device
+
+  - assert:
+      variable: relationships_result.target_raw.relationships[1].to_source_id
+      equals: "device-002"
+      message: Second relationship to_id should be second device
+
+  # ============================================
+  # Test 3: One-to-many with multiple fields per relationship
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "One-to-Many Full Mapping"
+        source_raw:
+          manager_id: "mgr-456"
+          manager_name: "Jane Manager"
+          reports:
+            - employee_id: "emp-001"
+              employee_name: "Alice Worker"
+            - employee_id: "emp-002"
+              employee_name: "Bob Helper"
+            - employee_id: "emp-003"
+              employee_name: "Charlie Coder"
+        source_fields:
+          - id: manager_id
+            path: "manager_id"
+            type: string
+          - id: manager_name
+            path: "manager_name"
+            type: string
+          - id: reports
+            path: "reports"
+            type: array
+            items:
+              id: report
+              type: object
+              fields:
+                - id: employee_id
+                  path: "employee_id"
+                  type: string
+                - id: employee_name
+                  path: "employee_name"
+                  type: string
+        target_fields:
+          - id: reporting_relationships
+            path: "reporting_relationships"
+            type: array
+            items:
+              id: reporting_rel
+              type: object
+              fields:
+                - id: rel_type
+                  path: "type"
+                  type: string
+                - id: manager_source_id
+                  path: "manager_id"
+                  type: string
+                - id: manager_display_name
+                  path: "manager_name"
+                  type: string
+                - id: employee_source_id
+                  path: "employee_id"
+                  type: string
+                - id: employee_display_name
+                  path: "employee_name"
+                  type: string
+        steps: []
+        links:
+          - source:
+              constant: "reports_to"
+            target:
+              field_id: rel_type
+          - source:
+              field_id: manager_id
+            target:
+              field_id: manager_source_id
+          - source:
+              field_id: manager_name
+            target:
+              field_id: manager_display_name
+          - source:
+              field_id: employee_id
+            target:
+              field_id: employee_source_id
+          - source:
+              field_id: employee_name
+            target:
+              field_id: employee_display_name
+      expect:
+        status: 200
+      save_as: one_to_many_result
+
+  # Should have 3 relationships (one per employee)
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[0].type
+      equals: "reports_to"
+      message: Relationship type should be reports_to
+
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[0].manager_id
+      equals: "mgr-456"
+      message: Manager ID should be broadcast to all relationships
+
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[0].manager_name
+      equals: "Jane Manager"
+      message: Manager name should be broadcast to all relationships
+
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[0].employee_id
+      equals: "emp-001"
+      message: First employee ID should match first report
+
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[1].employee_id
+      equals: "emp-002"
+      message: Second employee ID should match second report
+
+  - assert:
+      variable: one_to_many_result.target_raw.reporting_relationships[2].employee_id
+      equals: "emp-003"
+      message: Third employee ID should match third report
+
+  # ============================================
+  # Test 4: Extract nested array items
+  # ============================================
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/test
+      body:
+        name: "Nested Array Extraction"
+        source_raw:
+          response:
+            data:
+              items:
+                - sku: "SKU-001"
+                  qty: 5
+                - sku: "SKU-002"
+                  qty: 10
+        source_fields:
+          - id: items
+            path: "response.data.items"
+            type: array
+            items:
+              id: item
+              type: object
+              fields:
+                - id: item_sku
+                  path: "sku"
+                  type: string
+                - id: item_qty
+                  path: "qty"
+                  type: number
+        target_fields:
+          - id: skus
+            path: "skus"
+            type: array
+            items:
+              id: sku_item
+              type: string
+        steps: []
+        links:
+          - source:
+              field_id: item_sku
+            target:
+              field_id: sku_item
+      expect:
+        status: 200
+      save_as: nested_array_result
+
+  - assert:
+      variable: nested_array_result.target_raw.skus
+      contains: "SKU-001"
+      message: Should extract first SKU
+
+  - assert:
+      variable: nested_array_result.target_raw.skus
+      contains: "SKU-002"
+      message: Should extract second SKU
