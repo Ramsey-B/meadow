@@ -45,8 +45,8 @@ type TestContext struct {
 	// HTTP client
 	httpClient *http.Client
 
-	// Background Kafka consumer for capturing messages
-	kafkaConsumer *kafka.BackgroundConsumer
+	// Background Kafka consumers for capturing messages (one per topic)
+	kafkaConsumers map[string]*kafka.BackgroundConsumer
 }
 
 // NewTestContext creates a new test context with a unique tenant ID
@@ -58,17 +58,18 @@ func NewTestContext(ctx context.Context, config Config) *TestContext {
 	}
 
 	return &TestContext{
-		ctx:          ctx,
-		OrchidURL:    config.OrchidURL,
-		LotusURL:     config.LotusURL,
-		IvyURL:       config.IvyURL,
-		MocksURL:     config.MocksURL,
-		KafkaBrokers: config.KafkaBrokers,
-		TestTenant:   testTenant,
-		Verbose:      config.Verbose,
-		vars:         make(map[string]interface{}),
-		fixtures:     make(map[string]interface{}),
-		templates:    make(map[string]interface{}),
+		ctx:            ctx,
+		OrchidURL:      config.OrchidURL,
+		LotusURL:       config.LotusURL,
+		IvyURL:         config.IvyURL,
+		MocksURL:       config.MocksURL,
+		KafkaBrokers:   config.KafkaBrokers,
+		TestTenant:     testTenant,
+		Verbose:        config.Verbose,
+		vars:           make(map[string]interface{}),
+		fixtures:       make(map[string]interface{}),
+		templates:      make(map[string]interface{}),
+		kafkaConsumers: make(map[string]*kafka.BackgroundConsumer),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -210,36 +211,50 @@ func (tc *TestContext) GetTemplate(name string) (map[string]interface{}, bool) {
 	return nil, false
 }
 
-// StartKafkaConsumer starts a background Kafka consumer from the given offset
+// StartKafkaConsumer starts a background Kafka consumer for a topic from the given offset
 func (tc *TestContext) StartKafkaConsumer(topic string, startOffset int64) error {
-	if tc.kafkaConsumer != nil {
-		// Already started
+	// Check if consumer for this topic already exists
+	if _, exists := tc.kafkaConsumers[topic]; exists {
+		if tc.Verbose {
+			fmt.Printf("  [KAFKA] Consumer for topic %s already exists\n", topic)
+		}
 		return nil
 	}
 
 	consumer, err := kafka.NewBackgroundConsumer(tc.KafkaBrokers, topic, startOffset)
 	if err != nil {
-		return fmt.Errorf("failed to start background Kafka consumer: %w", err)
+		return fmt.Errorf("failed to start background Kafka consumer for topic %s: %w", topic, err)
 	}
 
-	tc.kafkaConsumer = consumer
+	tc.kafkaConsumers[topic] = consumer
 	if tc.Verbose {
-		fmt.Printf("  [KAFKA] Started background consumer from offset %d\n", startOffset)
+		fmt.Printf("  [KAFKA] Started background consumer for topic %s from offset %d\n", topic, startOffset)
 	}
 	return nil
 }
 
-// GetKafkaConsumer returns the background Kafka consumer (may be nil if not started)
+// GetKafkaConsumer returns the background Kafka consumer for the current topic
+// Note: This returns the most recently used consumer - for multi-topic support,
+// the caller should use GetKafkaConsumerForTopic
 func (tc *TestContext) GetKafkaConsumer() interface{} {
-	return tc.kafkaConsumer
+	// For backward compatibility, return any consumer (preferring the last one)
+	for _, consumer := range tc.kafkaConsumers {
+		return consumer
+	}
+	return nil
+}
+
+// GetKafkaConsumerForTopic returns the background Kafka consumer for a specific topic
+func (tc *TestContext) GetKafkaConsumerForTopic(topic string) interface{} {
+	return tc.kafkaConsumers[topic]
 }
 
 // Cleanup closes resources
 func (tc *TestContext) Cleanup() {
-	// Close Kafka consumer if running
-	if tc.kafkaConsumer != nil {
-		if err := tc.kafkaConsumer.Close(); err != nil {
-			fmt.Printf("  [KAFKA] Warning: failed to close consumer: %v\n", err)
+	// Close all Kafka consumers
+	for topic, consumer := range tc.kafkaConsumers {
+		if err := consumer.Close(); err != nil {
+			fmt.Printf("  [KAFKA] Warning: failed to close consumer for topic %s: %v\n", topic, err)
 		}
 	}
 }

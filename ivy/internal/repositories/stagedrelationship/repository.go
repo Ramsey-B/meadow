@@ -2,6 +2,7 @@ package stagedrelationship
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -67,6 +68,15 @@ func (r *Repository) Create(ctx context.Context, tenantID string, req models.Cre
 		req.ToEntityType, req.ToSourceID, req.ToIntegration, req.ConfigID)
 	now := time.Now().UTC()
 
+	// Handle nil/empty data - PostgreSQL JSONB requires valid JSON or NULL
+	// Use json.RawMessage("null") for empty data to avoid "invalid input syntax for type json" errors
+	var data json.RawMessage
+	if len(req.Data) > 0 {
+		data = req.Data
+	} else {
+		data = json.RawMessage("null")
+	}
+
 	relationship := &models.StagedRelationship{
 		ID:               id,
 		TenantID:         tenantID,
@@ -89,7 +99,7 @@ func (r *Repository) Create(ctx context.Context, tenantID string, req models.Cre
 		ExecutionID:       req.SourceExecutionID,
 		LastSeenExecution: req.SourceExecutionID,
 
-		Data:      req.Data,
+		Data:      data,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

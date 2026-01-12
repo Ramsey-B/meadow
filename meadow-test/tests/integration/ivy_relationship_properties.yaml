@@ -1,0 +1,275 @@
+name: Ivy Relationship With Properties Tests
+description: |
+  Tests that relationship properties are properly stored:
+  1. Create department entity first
+  2. Create employee with embedded relationship containing properties
+  3. Verify relationship is staged in ivy.public.staged_relationships with properties
+
+setup:
+  # Create Employee entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Prop Test Employee"
+        key: "propemployee{{timestamp}}"
+        description: "Employee for relationship property tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            employee_id:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: employee_type
+
+  # Create Department entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Prop Test Department"
+        key: "propdept{{timestamp}}"
+        description: "Department for relationship property tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            dept_code:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: dept_type
+
+  # Create belongs_to relationship type with schema
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Belongs To Dept"
+        key: "belongstodept{{timestamp}}"
+        description: "Employee belongs to department with role info"
+        from_entity_type: "{{employee_type.key}}"
+        to_entity_type: "{{dept_type.key}}"
+        cardinality: "many_to_one"
+        schema:
+          type: object
+          properties:
+            role:
+              type: string
+            start_date:
+              type: string
+            is_manager:
+              type: boolean
+      expect:
+        status: 201
+      save_as: belongs_to_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: entities_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: relationships_offset
+
+steps:
+  # ============================================
+  # Step 1: Create Department First
+  # ============================================
+  - set_variable:
+      name: dept_source_id
+      value: "engineering-dept-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "prop-dept-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "depts_sync"
+          config_id: "wd-dept-{{uuid}}"
+          execution_id: "wd-dept-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "wd-dept-exec-{{uuid}}"
+        source_key: "depts_sync"
+        config_id: "wd-dept-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{dept_type.key}}"
+        data:
+          name: "Engineering"
+          dept_code: "{{dept_source_id}}"
+          source_id: "{{dept_source_id}}"
+
+  - wait:
+      duration: "5s"
+
+  # Verify department was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{entities_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{dept_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: dept_staged
+
+  # ============================================
+  # Step 2: Create Employee with Relationship Properties
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: emp_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: rel_offset_2
+
+  - set_variable:
+      name: emp_source_id
+      value: "john-emp-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "prop-emp-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "employees_sync"
+          config_id: "wd-emp-{{uuid}}"
+          execution_id: "wd-emp-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "wd-emp-exec-{{uuid}}"
+        source_key: "employees_sync"
+        config_id: "wd-emp-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:01:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{employee_type.key}}"
+        data:
+          email: "john.props.{{uuid}}@example.com"
+          name: "John Props"
+          employee_id: "{{emp_source_id}}"
+          source_id: "{{emp_source_id}}"
+        relationships:
+          - type: "{{belongs_to_type.key}}"
+            to_entity_type: "{{dept_type.key}}"
+            to_source_id: "{{dept_source_id}}"
+            data:
+              role: "Senior Engineer"
+              start_date: "2023-06-15"
+              is_manager: false
+
+  - wait:
+      duration: "6s"
+
+  # Verify employee was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{emp_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{employee_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: emp_staged
+
+  # ============================================
+  # Step 3: Verify Relationship with Properties was Staged
+  # ============================================
+  
+  # Check for relationship in staged_relationships CDC topic
+  - assert_kafka_message:
+      topic: ivy.public.staged_relationships
+      from_offset: "{{rel_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{belongs_to_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        # Verify relationship has data (properties)
+        - field: payload.after.data
+          not_empty: true
+      save_as: rel_staged
+
+  # Verify relationship type schema has our properties
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/relationship-types/{{belongs_to_type.id}}
+      expect:
+        status: 200
+      save_as: rel_type_check
+
+  - assert:
+      variable: rel_type_check.schema.properties.role
+      not_empty: true
+      message: "Relationship type schema should have role property"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{belongs_to_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{employee_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{dept_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

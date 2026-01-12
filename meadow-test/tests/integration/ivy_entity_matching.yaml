@@ -1,0 +1,187 @@
+name: Ivy Entity Matching Tests
+description: |
+  Tests entity matching and merging via the CDC pipeline:
+  - Publish entities to mapped-data topic
+  - Ivy processes, stages, matches and merges entities
+  - CDC captures merged entities in ivy.public.merged_entities
+
+setup:
+  # Create entity type for testing (using timestamp for uniqueness)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Test Person"
+        key: "cdcperson{{timestamp}}"
+        description: "Person entity for CDC matching tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # Create exact email match rule
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "Email Exact Match"
+        description: "Match by exact email"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: email_rule
+
+  # Get Kafka offset before publishing
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset
+
+steps:
+  # ============================================
+  # Test 1: Publish Entity and Verify Merged
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "match-test-1-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_plan"
+          config_id: "config-{{uuid}}"
+          execution_id: "exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "exec-{{uuid}}"
+        source_key: "users_plan"
+        config_id: "config-{{uuid}}"
+        integration: "okta"
+        timestamp: "2026-01-11T12:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "john.doe.{{uuid}}@example.com"
+          first_name: "John"
+          last_name: "Doe"
+          source_id: "okta-user-1-{{uuid}}"
+
+  - wait:
+      duration: "8s"
+      reason: "Wait for CDC pipeline to process"
+
+  # Verify merged entity was created (CDC captured it)
+  # Note: skip_tenant_header_filter because Debezium CDC has tenant_id in body, not headers
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: first_merged
+
+  # ============================================
+  # Test 2: Second Entity from Different Source
+  # ============================================
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: second_offset
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "match-test-2-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "msgraph"
+          key: "users_plan"
+          config_id: "config2-{{uuid}}"
+          execution_id: "exec2-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "exec2-{{uuid}}"
+        source_key: "users_plan"
+        config_id: "config2-{{uuid}}"
+        integration: "msgraph"
+        timestamp: "2026-01-11T12:00:01Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "jane.doe.{{uuid}}@example.com"
+          first_name: "Jane"
+          last_name: "Doe"
+          source_id: "msgraph-user-1-{{uuid}}"
+
+  - wait:
+      duration: "8s"
+      reason: "Wait for CDC pipeline"
+
+  # Verify second entity created
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{second_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+
+cleanup:
+  # Delete match rules
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{email_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

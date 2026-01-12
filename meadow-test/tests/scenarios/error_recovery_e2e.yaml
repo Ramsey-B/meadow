@@ -1,0 +1,153 @@
+name: Error Recovery E2E
+description: |
+  End-to-end test for error recovery scenarios
+
+steps:
+  # ============================================
+  # Setup
+  # ============================================
+  
+  - set_variable:
+      name: mock_path
+      value: "/mock/recovery-e2e-{{uuid}}"
+  
+  # Configure mock endpoint
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_path}}"
+        response:
+          status: 200
+          body:
+            status: "success"
+            message: "Endpoint working correctly"
+      expect:
+        status: 200
+
+  # Create integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Error Recovery Integration {{uuid}}"
+        description: "Integration for error recovery test"
+        config_schema:
+          name: "Recovery Config Schema"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Error Recovery Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "recovery-e2e-{{uuid}}"
+        name: "Recovery Plan"
+        description: "Plan for error recovery test"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}{{mock_path}}"
+            method: GET
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Get Kafka offset
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: kafka_offset
+
+  # Trigger execution
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+      save_as: trigger
+
+  - assert:
+      variable: trigger.status
+      equals: "queued"
+      message: "Execution should be queued"
+
+  # Wait for execution
+  - wait:
+      duration: 3s
+      reason: "Allow execution to complete"
+
+  # Verify success in Kafka
+  - assert_kafka_message:
+      topic: api-responses
+      from_offset: "{{kafka_offset}}"
+      timeout: 20s
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+        field_contains: request_url
+        contains_value: "{{mock_path}}"
+      assertions:
+        - field: status_code
+          equals: 200
+        - field: response_body[0].status
+          equals: "success"
+        - field: response_body[0].message
+          equals: "Endpoint working correctly"
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}

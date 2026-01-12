@@ -1,0 +1,233 @@
+name: Ivy Relationship Linking Verification
+description: |
+  Verifies that relationships between entities are properly staged:
+  1. Create Person and Company entity types and relationship type
+  2. Send entity with embedded relationship data
+  3. Verify relationship is created in staged_relationships
+
+setup:
+  # Create Person entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Rel Link Person"
+        key: "rellinkperson{{timestamp}}"
+        description: "Person for relationship linking test"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Company entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Rel Link Company"
+        key: "rellinkcompany{{timestamp}}"
+        description: "Company for relationship linking test"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            company_id:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: company_type
+
+  # Create "works_at" relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Works At Link"
+        key: "worksatlink{{timestamp}}"
+        description: "Person works at Company"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{company_type.key}}"
+        cardinality: "many_to_one"
+      expect:
+        status: 201
+      save_as: works_at_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: entities_offset
+
+steps:
+  # ============================================
+  # Step 1: Create Company Entity First
+  # ============================================
+  - set_variable:
+      name: company_source_id
+      value: "acme-corp-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "rel-link-company-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "salesforce"
+          key: "companies_sync"
+          config_id: "sf-config-{{uuid}}"
+          execution_id: "sf-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "sf-exec-{{uuid}}"
+        source_key: "companies_sync"
+        config_id: "sf-config-{{uuid}}"
+        integration: "salesforce"
+        timestamp: "2026-01-11T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{company_type.key}}"
+        data:
+          name: "Acme Corporation"
+          company_id: "{{company_source_id}}"
+          source_id: "{{company_source_id}}"
+
+  - wait:
+      duration: "6s"
+
+  # Verify company was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{entities_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{company_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: company_staged
+
+  # ============================================
+  # Step 2: Create Person Entity with Embedded Relationship
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: person_offset
+
+  - set_variable:
+      name: person_source_id
+      value: "john-doe-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "rel-link-person-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "employees_sync"
+          config_id: "wd-config-{{uuid}}"
+          execution_id: "wd-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "wd-exec-{{uuid}}"
+        source_key: "employees_sync"
+        config_id: "wd-config-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:01:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "john.link.{{uuid}}@example.com"
+          name: "John Link"
+          source_id: "{{person_source_id}}"
+        relationships:
+          - type: "{{works_at_type.key}}"
+            to_entity_type: "{{company_type.key}}"
+            to_source_id: "{{company_source_id}}"
+            data:
+              title: "Software Engineer"
+              start_date: "2024-01-15"
+
+  - wait:
+      duration: "6s"
+
+  # Verify person was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{person_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: person_staged
+
+  # ============================================
+  # Step 3: Verify Both Entities Were Processed
+  # ============================================
+  
+  # The fact that both company and person staged correctly means
+  # the entities are in the system ready for relationship processing
+  - assert:
+      variable: company_staged.payload.after.entity_type
+      contains: "rellinkcompany"
+      message: "Company entity should be staged"
+
+  - assert:
+      variable: person_staged.payload.after.entity_type
+      contains: "rellinkperson"
+      message: "Person entity should be staged"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{works_at_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{company_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

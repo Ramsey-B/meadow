@@ -1,0 +1,165 @@
+name: Kafka Message Key Partitioning
+description: |
+  Tests that Kafka respects message keys for ordering:
+  - Messages with the same key go to the same partition
+  - Messages with the same key maintain order
+  - Different keys can be consumed independently
+
+setup:
+  - get_kafka_offset:
+      topic: meadow-test-partitioning
+      save_as: start_offset
+
+steps:
+  # ============================================
+  # Test 1: Messages with same key maintain order
+  # ============================================
+  
+  # Publish 3 messages with the same key
+  - publish_kafka:
+      topic: meadow-test-partitioning
+      key: "same-key-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        sequence: "1"
+      value:
+        order: 1
+        message: "First message"
+        batch_id: "batch-{{uuid}}"
+
+  - publish_kafka:
+      topic: meadow-test-partitioning
+      key: "same-key-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        sequence: "2"
+      value:
+        order: 2
+        message: "Second message"
+        batch_id: "batch-{{uuid}}"
+
+  - publish_kafka:
+      topic: meadow-test-partitioning
+      key: "same-key-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        sequence: "3"
+      value:
+        order: 3
+        message: "Third message"
+        batch_id: "batch-{{uuid}}"
+
+  - wait:
+      duration: "2s"
+
+  # Verify first message (order=1)
+  - assert_kafka_message:
+      topic: meadow-test-partitioning
+      from_offset: "{{start_offset}}"
+      timeout: 10s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+          sequence: "1"
+      assertions:
+        - field: order
+          equals: 1
+        - field: message
+          equals: "First message"
+      save_as: msg1
+
+  # Verify second message (order=2)
+  - assert_kafka_message:
+      topic: meadow-test-partitioning
+      from_offset: "{{start_offset}}"
+      timeout: 10s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+          sequence: "2"
+      assertions:
+        - field: order
+          equals: 2
+        - field: message
+          equals: "Second message"
+      save_as: msg2
+
+  # Verify third message (order=3)
+  - assert_kafka_message:
+      topic: meadow-test-partitioning
+      from_offset: "{{start_offset}}"
+      timeout: 10s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+          sequence: "3"
+      assertions:
+        - field: order
+          equals: 3
+        - field: message
+          equals: "Third message"
+      save_as: msg3
+
+  # ============================================
+  # Test 2: Different keys are independent
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: meadow-test-partitioning
+      save_as: second_offset
+
+  # Publish messages with different keys
+  - publish_kafka:
+      topic: meadow-test-partitioning
+      key: "key-a-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        key_group: "A"
+      value:
+        group: "A"
+        value: 100
+
+  - publish_kafka:
+      topic: meadow-test-partitioning
+      key: "key-b-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        key_group: "B"
+      value:
+        group: "B"
+        value: 200
+
+  - wait:
+      duration: "2s"
+
+  # Verify group A message
+  - assert_kafka_message:
+      topic: meadow-test-partitioning
+      from_offset: "{{second_offset}}"
+      timeout: 10s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+          key_group: "A"
+      assertions:
+        - field: group
+          equals: "A"
+        - field: value
+          equals: 100
+
+  # Verify group B message
+  - assert_kafka_message:
+      topic: meadow-test-partitioning
+      from_offset: "{{second_offset}}"
+      timeout: 10s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+          key_group: "B"
+      assertions:
+        - field: group
+          equals: "B"
+        - field: value
+          equals: 200
+
+cleanup: []

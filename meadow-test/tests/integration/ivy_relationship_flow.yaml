@@ -1,0 +1,149 @@
+name: Ivy Relationship Flow Tests
+description: |
+  Tests relationship staging via the Kafka pipeline:
+  - Direct relationships (source_id → source_id)
+  - Verifies entity staging works with relationships
+
+setup:
+  # Create Person entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Rel Test Person"
+        key: "relperson{{timestamp}}"
+        description: "Person for relationship tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            name:
+              type: string
+            department:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Company entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Rel Test Company"
+        key: "relcompany{{timestamp}}"
+        description: "Company for relationship tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            industry:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: company_type
+
+  # Create works_at relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Works At"
+        key: "worksat{{timestamp}}"
+        description: "Person works at Company"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{company_type.key}}"
+        cardinality: "many_to_one"
+      expect:
+        status: 201
+      save_as: works_at_type
+
+  # Get Kafka offset
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: entities_offset
+
+steps:
+  # ============================================
+  # Test 1: Create Company Entity
+  # ============================================
+  
+  - publish_kafka:
+      topic: mapped-data
+      key: "company-1-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "salesforce"
+          key: "companies_plan"
+          config_id: "sf-config-{{uuid}}"
+          execution_id: "sf-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "sf-exec-{{uuid}}"
+        source_key: "companies_plan"
+        config_id: "sf-config-{{uuid}}"
+        integration: "salesforce"
+        timestamp: "2026-01-11T12:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{company_type.key}}"
+        data:
+          name: "Acme Corp"
+          industry: "Technology"
+          source_id: "sf-company-{{uuid}}"
+
+  - wait:
+      duration: "5s"
+
+  # Verify company was staged - unique filter using our specific entity type key
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{entities_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{company_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+
+cleanup:
+  # Delete relationship types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{works_at_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{company_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

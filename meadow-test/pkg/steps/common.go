@@ -20,7 +20,8 @@ type TestContext interface {
 	Log(format string, args ...interface{})
 	Error(format string, args ...interface{})
 	StartKafkaConsumer(topic string, startOffset int64) error
-	GetKafkaConsumer() interface{} // Returns *kafka.BackgroundConsumer but using interface{} to avoid import cycle
+	GetKafkaConsumer() interface{}                        // Returns *kafka.BackgroundConsumer but using interface{} to avoid import cycle
+	GetKafkaConsumerForTopic(topic string) interface{}    // Returns *kafka.BackgroundConsumer for a specific topic
 }
 
 // Wait implements the wait step

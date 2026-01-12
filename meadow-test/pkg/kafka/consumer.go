@@ -114,9 +114,20 @@ func (bc *BackgroundConsumer) consume() {
 	}
 }
 
+// BodyFilter specifies a field path and substring that the message body must contain
+type BodyFilter struct {
+	FieldPath      string // e.g., "payload.after.entity_type"
+	ContainsValue  string // substring that must be present in the field value
+}
+
 // FindMessage looks for a message matching the given header filters and optional field requirement
 // Returns nil if not found
 func (bc *BackgroundConsumer) FindMessage(headerFilters map[string]string, requiredField string) *Message {
+	return bc.FindMessageWithBodyFilter(headerFilters, requiredField, nil)
+}
+
+// FindMessageWithBodyFilter looks for a message matching header filters AND body field filters
+func (bc *BackgroundConsumer) FindMessageWithBodyFilter(headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter) *Message {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -144,21 +155,85 @@ func (bc *BackgroundConsumer) FindMessage(headerFilters map[string]string, requi
 			}
 		}
 
+		// Check body filter (if specified)
+		if bodyFilter != nil && bodyFilter.FieldPath != "" && bodyFilter.ContainsValue != "" {
+			fieldValue := getNestedFieldFromBody(msg.Body, bodyFilter.FieldPath)
+			fieldStr := fmt.Sprintf("%v", fieldValue)
+			if fieldValue == nil || !containsString(fieldStr, bodyFilter.ContainsValue) {
+				continue
+			}
+		}
+
 		return msg
 	}
 
 	return nil
 }
 
+// getNestedFieldFromBody extracts a nested field from the message body using dot notation
+func getNestedFieldFromBody(body map[string]interface{}, path string) interface{} {
+	parts := splitPath(path)
+	var current interface{} = body
+
+	for _, part := range parts {
+		if m, ok := current.(map[string]interface{}); ok {
+			current = m[part]
+		} else {
+			return nil
+		}
+	}
+
+	return current
+}
+
+// splitPath splits a dot-notation path into parts
+func splitPath(path string) []string {
+	var parts []string
+	var current string
+	for _, c := range path {
+		if c == '.' {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		parts = append(parts, current)
+	}
+	return parts
+}
+
+// containsString checks if s contains substr (case-sensitive)
+func containsString(s, substr string) bool {
+	return len(substr) <= len(s) && (s == substr || len(s) > 0 && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // WaitForMessage waits for a message matching the filters, with timeout and retry
 func (bc *BackgroundConsumer) WaitForMessage(headerFilters map[string]string, requiredField string, timeout time.Duration) (*Message, error) {
+	return bc.WaitForMessageWithBodyFilter(headerFilters, requiredField, nil, timeout)
+}
+
+// WaitForMessageWithBodyFilter waits for a message matching header AND body filters
+func (bc *BackgroundConsumer) WaitForMessageWithBodyFilter(headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter, timeout time.Duration) (*Message, error) {
 	deadline := time.Now().Add(timeout)
 	attempts := 0
 
 	for time.Now().Before(deadline) {
 		attempts++
 
-		if msg := bc.FindMessage(headerFilters, requiredField); msg != nil {
+		if msg := bc.FindMessageWithBodyFilter(headerFilters, requiredField, bodyFilter); msg != nil {
 			return msg, nil
 		}
 

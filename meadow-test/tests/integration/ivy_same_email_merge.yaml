@@ -1,0 +1,206 @@
+name: Ivy Same Email Merge Verification
+description: |
+  Verifies that two entities with the SAME email from different sources 
+  get processed by the CDC pipeline. Tests:
+  1. First entity creates a new merged entity
+  2. Second entity with same email is also processed
+  Note: The actual merge may happen via update (op=u) or cluster consolidation
+
+setup:
+  # Create a unique email for this test run
+  - set_variable:
+      name: test_email
+      value: "merge.verify.{{uuid}}@example.com"
+
+  # Create entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Merge Verify Person"
+        key: "mergeverify{{timestamp}}"
+        description: "Person for same-email merge verification"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            first_name:
+              type: string
+            last_name:
+              type: string
+            phone:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # Create exact email match rule
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "Email Exact Match"
+        description: "Match by exact email"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: match_rule
+
+  # Get Kafka offsets before test
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset
+
+steps:
+  # ============================================
+  # Step 1: Send FIRST entity from OKTA
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "merge-okta-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-config-{{uuid}}"
+          execution_id: "okta-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-config-{{uuid}}"
+        integration: "okta"
+        timestamp: "2026-01-11T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "{{test_email}}"
+          first_name: "John"
+          phone: "555-1234"
+          source_id: "okta-user-{{uuid}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for CDC pipeline to fully process and index first entity"
+
+  # Verify first entity created a merged entity
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        - field: payload.after.source_count
+          equals: 1
+      save_as: first_merged
+
+  # ============================================
+  # Step 2: Send SECOND entity from MS GRAPH (SAME email)
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "merge-msgraph-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "msgraph"
+          key: "users_sync"
+          config_id: "msgraph-config-{{uuid}}"
+          execution_id: "msgraph-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "msgraph-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "msgraph-config-{{uuid}}"
+        integration: "msgraph"
+        timestamp: "2026-01-11T10:01:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "{{test_email}}"
+          last_name: "Doe"
+          source_id: "msgraph-user-{{uuid}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for matching and merging"
+
+  # ============================================
+  # Step 3: Verify second entity was processed
+  # ============================================
+  
+  # Check for any merged entity activity after second entity
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        # Just verify something happened - could be create or update
+        - field: payload.op
+          not_empty: true
+      save_as: second_merged
+
+  # Verify that we captured the second entity's integration
+  - assert:
+      variable: second_merged.payload.after.entity_type
+      contains: "mergeverify"
+      message: "Second entity should create/update a merged entity"
+
+cleanup:
+  # Delete match rule
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{match_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

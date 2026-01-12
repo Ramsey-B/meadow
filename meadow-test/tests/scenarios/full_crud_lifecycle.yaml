@@ -1,0 +1,420 @@
+name: Full CRUD Lifecycle E2E
+description: |
+  End-to-end test exercising the complete data lifecycle:
+  1. Create resources in each service (Orchid, Lotus, Ivy)
+  2. Read/query the created resources
+  3. Update resources
+  4. Delete/cleanup resources
+
+setup:
+  # ============================================
+  # Create Ivy Entity Type
+  # ============================================
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "E2E User"
+        key: "e2euser{{timestamp}}"
+        description: "User entity for E2E CRUD test"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            first_name:
+              type: string
+            last_name:
+              type: string
+            department:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+steps:
+  # ============================================
+  # Phase 1: CREATE Operations
+  # ============================================
+  
+  # Create Orchid Integration
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "E2E Test Integration {{uuid}}"
+        description: "Integration for E2E CRUD test"
+        config_schema:
+          name: "E2E Config Schema"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  # Create Orchid Config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "E2E Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Setup mock endpoint
+  - mock_api:
+      method: GET
+      path: "/e2e/crud/users-{{uuid}}"
+      response:
+        status: 200
+        body:
+          users:
+            - id: "user-1"
+              email: "alice.e2e@example.com"
+              first_name: "Alice"
+              last_name: "E2E"
+              department: "Engineering"
+
+  # Create Orchid Plan
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "e2e-crud-{{uuid}}"
+        name: "E2E User Fetch"
+        description: "Plan for E2E test"
+        enabled: true
+        plan_definition:
+          step:
+            url: "{{ config.base_url }}/e2e/crud/users-{{uuid}}"
+            method: GET
+          max_execution_seconds: 30
+      expect:
+        status: 201
+      save_as: plan
+
+  # Create Lotus Mapping
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "E2E User Mapping {{uuid}}"
+        key: "e2e-mapping-{{uuid}}"
+        description: "Transform users for E2E test"
+        source_fields:
+          - id: src_email
+            path: email
+            type: string
+          - id: src_first
+            path: first_name
+            type: string
+        target_fields:
+          - id: tgt_email
+            path: email
+            type: string
+          - id: tgt_first
+            path: first_name
+            type: string
+        steps:
+          - id: lower_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_email
+            target:
+              step_id: lower_email
+          - source:
+              step_id: lower_email
+            target:
+              field_id: tgt_email
+          - source:
+              field_id: src_first
+            target:
+              field_id: tgt_first
+      expect:
+        status_one_of: [201, 202]
+      save_as: mapping
+
+  # Create Ivy Match Rule
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "E2E Email Match"
+        description: "Match by email for E2E test"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: match_rule
+
+  # ============================================
+  # Phase 2: READ Operations
+  # ============================================
+  
+  # Read Integration
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status: 200
+      save_as: integration_read
+
+  - assert:
+      variable: integration_read.id
+      equals: "{{integration.id}}"
+      message: "Integration ID should match"
+
+  # Read Config
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 200
+      save_as: config_read
+
+  - assert:
+      variable: config_read.name
+      equals: "E2E Config"
+      message: "Config name should match"
+
+  # Read Plan
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 200
+      save_as: plan_read
+
+  - assert:
+      variable: plan_read.name
+      equals: "E2E User Fetch"
+      message: "Plan name should match"
+
+  # Read Mapping
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      expect:
+        status: 200
+      save_as: mapping_read
+
+  - assert:
+      variable: mapping_read.description
+      equals: "Transform users for E2E test"
+      message: "Mapping description should match"
+
+  # Read Entity Type
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status: 200
+      save_as: entity_type_read
+
+  - assert:
+      variable: entity_type_read.name
+      equals: "E2E User"
+      message: "Entity type name should match"
+
+  # Read Match Rule
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules/{{match_rule.id}}
+      expect:
+        status: 200
+      save_as: match_rule_read
+
+  - assert:
+      variable: match_rule_read.name
+      equals: "E2E Email Match"
+      message: "Match rule name should match"
+
+  # ============================================
+  # Phase 3: UPDATE Operations
+  # ============================================
+  
+  # Update Integration
+  - http_request:
+      service: orchid
+      method: PUT
+      path: /api/v1/integrations/{{integration.id}}
+      body:
+        name: "E2E Test Integration (Updated)"
+        description: "Updated description"
+      expect:
+        status: 200
+      save_as: integration_updated
+
+  - assert:
+      variable: integration_updated.name
+      equals: "E2E Test Integration (Updated)"
+      message: "Integration name should be updated"
+
+  # Update Entity Type
+  - http_request:
+      service: ivy
+      method: PUT
+      path: /api/v1/entity-types/{{entity_type.id}}
+      body:
+        name: "E2E User (Updated)"
+        description: "Updated user entity"
+      expect:
+        status: 200
+      save_as: entity_type_updated
+
+  - assert:
+      variable: entity_type_updated.name
+      equals: "E2E User (Updated)"
+      message: "Entity type name should be updated"
+
+  # Update Match Rule
+  - http_request:
+      service: ivy
+      method: PUT
+      path: /api/v1/match-rules/{{match_rule.id}}
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "E2E Email Match (Updated)"
+        description: "Updated match rule"
+        priority: 200
+        is_active: true
+        score_weight: 0.9
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 200
+      save_as: match_rule_updated
+
+  - assert:
+      variable: match_rule_updated.name
+      equals: "E2E Email Match (Updated)"
+      message: "Match rule name should be updated"
+
+  - assert:
+      variable: match_rule_updated.priority
+      equals: 200
+      message: "Match rule priority should be updated"
+
+  # ============================================
+  # Phase 4: DELETE Operations  
+  # ============================================
+  
+  # Delete Match Rule
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{match_rule.id}}
+      expect:
+        status_one_of: [200, 204]
+
+  # Verify Match Rule is deleted
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-rules/{{match_rule.id}}
+      expect:
+        status: 404
+
+  # Delete Plan
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status_one_of: [200, 204]
+
+  # Verify Plan is deleted
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/plans/{{plan.key}}
+      expect:
+        status: 404
+
+  # Delete Config
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status_one_of: [200, 204]
+
+  # Verify Config is deleted
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/configs/{{config.id}}
+      expect:
+        status: 404
+
+  # Delete Integration
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status_one_of: [200, 204]
+
+  # Verify Integration is deleted
+  - http_request:
+      service: orchid
+      method: GET
+      path: /api/v1/integrations/{{integration.id}}
+      expect:
+        status: 404
+
+cleanup:
+  # Clean up mock
+  - mock_api:
+      method: GET
+      path: "/e2e/crud/users-{{uuid}}"
+      delete: true
+
+  # Delete Entity Type (if not already deleted in steps)
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

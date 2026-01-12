@@ -1,0 +1,233 @@
+name: Ivy Criteria-Based Relationship Tests
+description: |
+  Tests criteria-based relationships where target is matched by criteria
+  instead of direct source_id. This allows dynamic relationship creation
+  based on field values.
+
+setup:
+  # Create User entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Criteria Test User"
+        key: "criteriauser{{timestamp}}"
+        description: "User for criteria relationship tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            department:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: user_type
+
+  # Create Group entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Criteria Test Group"
+        key: "criteriagroup{{timestamp}}"
+        description: "Group for criteria relationship tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            department:
+              type: string
+            group_id:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: group_type
+
+  # Create member_of relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Member Of Criteria"
+        key: "memberofcriteria{{timestamp}}"
+        description: "User is member of Group (criteria-based)"
+        from_entity_type: "{{user_type.key}}"
+        to_entity_type: "{{group_type.key}}"
+        cardinality: "many_to_many"
+      expect:
+        status: 201
+      save_as: member_of_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: entities_offset
+
+steps:
+  # ============================================
+  # Step 1: Create Group (Engineering Dept)
+  # ============================================
+  - set_variable:
+      name: group_source_id
+      value: "eng-group-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "criteria-group-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "groups_sync"
+          config_id: "okta-groups-{{uuid}}"
+          execution_id: "okta-groups-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-groups-exec-{{uuid}}"
+        source_key: "groups_sync"
+        config_id: "okta-groups-{{uuid}}"
+        integration: "okta"
+        timestamp: "2026-01-11T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{group_type.key}}"
+        data:
+          name: "Engineering Group"
+          department: "Engineering"
+          group_id: "{{group_source_id}}"
+          source_id: "{{group_source_id}}"
+
+  - wait:
+      duration: "5s"
+
+  # Verify group was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{entities_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{group_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: group_staged
+
+  # ============================================
+  # Step 2: Create User in Engineering Department
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: user_offset
+
+  - set_variable:
+      name: user_source_id
+      value: "eng-user-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "criteria-user-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-users-{{uuid}}"
+          execution_id: "okta-users-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-users-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-users-{{uuid}}"
+        integration: "okta"
+        timestamp: "2026-01-11T10:01:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{user_type.key}}"
+        data:
+          email: "eng.user.{{uuid}}@example.com"
+          name: "Engineering User"
+          department: "Engineering"
+          source_id: "{{user_source_id}}"
+
+  - wait:
+      duration: "5s"
+
+  # Verify user was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{user_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{user_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: user_staged
+
+  # ============================================
+  # Step 3: Verify Both Entities are Staged
+  # ============================================
+  
+  - assert:
+      variable: group_staged.payload.after.entity_type
+      contains: "criteriagroup"
+      message: "Group entity should be staged"
+
+  - assert:
+      variable: user_staged.payload.after.entity_type
+      contains: "criteriauser"
+      message: "User entity should be staged"
+
+  # Entities are in the system - criteria relationships would be
+  # evaluated by the CriteriaEvaluator when a criteria definition
+  # is created that matches these entities
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{member_of_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{user_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{group_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

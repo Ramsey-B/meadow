@@ -442,16 +442,20 @@ func AssertKafkaMessage(ctx TestContext, params interface{}) error {
 
 // assertKafkaMessageFromOffset queries the background consumer for messages matching the filters
 func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interface{}, brokers []string, topic string, startOffset int64, timeout time.Duration) error {
-	// Get the background consumer
-	consumerIface := ctx.GetKafkaConsumer()
+	// Get the background consumer for this specific topic
+	consumerIface := ctx.GetKafkaConsumerForTopic(topic)
 	if consumerIface == nil {
-		return fmt.Errorf("background Kafka consumer not started - call get_kafka_offset first")
+		// Fall back to generic consumer (backward compatibility)
+		consumerIface = ctx.GetKafkaConsumer()
+	}
+	if consumerIface == nil {
+		return fmt.Errorf("background Kafka consumer not started for topic %s - call get_kafka_offset first", topic)
 	}
 
 	// Type assert to the concrete consumer type
 	consumer, ok := consumerIface.(*bgkafka.BackgroundConsumer)
 	if !ok {
-		return fmt.Errorf("invalid Kafka consumer type")
+		return fmt.Errorf("invalid Kafka consumer type for topic %s", topic)
 	}
 
 	// Parse filter criteria
@@ -489,14 +493,27 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 		}
 	}
 
+	// Check if skip_tenant_header_filter is set (for CDC topics where tenant_id is in body, not headers)
+	skipTenantHeaderFilter := false
+	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
+		if skip, ok := filter["skip_tenant_header_filter"].(bool); ok {
+			skipTenantHeaderFilter = skip
+		}
+	}
+
 	// ALWAYS filter by tenant_id for test isolation in parallel execution
 	// This ensures tests don't read each other's messages
-	testTenant := ctx.Interpolate("{{test_tenant}}").(string)
-	if testTenant != "" {
-		headerFilters["tenant_id"] = testTenant
-		ctx.Log("Auto-filtering by tenant_id=%s for test isolation", testTenant)
+	// UNLESS skip_tenant_header_filter is set (for CDC topics)
+	if !skipTenantHeaderFilter {
+		testTenant := ctx.Interpolate("{{test_tenant}}").(string)
+		if testTenant != "" {
+			headerFilters["tenant_id"] = testTenant
+			ctx.Log("Auto-filtering by tenant_id=%s for test isolation", testTenant)
+		} else {
+			ctx.Log("WARNING: test_tenant is empty, tenant_id filtering disabled!")
+		}
 	} else {
-		ctx.Log("WARNING: test_tenant is empty, tenant_id filtering disabled!")
+		ctx.Log("Skipping tenant_id header filter (skip_tenant_header_filter=true)")
 	}
 
 	// Add legacy single header filter to headerFilters map
@@ -504,14 +521,24 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 		headerFilters[filterHeader] = filterEquals
 	}
 
-	// Wait for a message matching the header filters from the background consumer
+	// Build body filter if field_contains is specified
+	var bodyFilter *bgkafka.BodyFilter
+	if filterFieldContains != "" && filterContainsValue != "" {
+		bodyFilter = &bgkafka.BodyFilter{
+			FieldPath:     filterFieldContains,
+			ContainsValue: filterContainsValue,
+		}
+		ctx.Log("Body filter: %s contains '%s'", filterFieldContains, filterContainsValue)
+	}
+
+	// Wait for a message matching the header AND body filters from the background consumer
 	ctx.Log("Waiting for Kafka message with filters: %v, required_field: %s (timeout: %s)", headerFilters, filterHasField, timeout)
-	msg, err := consumer.WaitForMessage(headerFilters, filterHasField, timeout)
+	msg, err := consumer.WaitForMessageWithBodyFilter(headerFilters, filterHasField, bodyFilter, timeout)
 	if err != nil {
 		return fmt.Errorf("failed to find matching message: %w", err)
 	}
 
-	ctx.Log("Found message at offset %d matching ALL headers", msg.Offset)
+	ctx.Log("Found message at offset %d matching filters", msg.Offset)
 	messageValue := msg.Body
 
 	// Additional field filters (if any) - these are applied in-memory after header matching
@@ -526,15 +553,6 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 	if filterHasField != "" {
 		if _, ok := messageValue[filterHasField]; !ok {
 			return fmt.Errorf("message missing required field %s", filterHasField)
-		}
-	}
-
-	// Check field_contains filter (field must contain substring)
-	if filterFieldContains != "" && filterContainsValue != "" {
-		fieldValue, _ := getNestedField(messageValue, filterFieldContains)
-		fieldStr := fmt.Sprintf("%v", fieldValue)
-		if !strings.Contains(fieldStr, filterContainsValue) {
-			return fmt.Errorf("field %s: %v does not contain %s", filterFieldContains, fieldStr, filterContainsValue)
 		}
 	}
 

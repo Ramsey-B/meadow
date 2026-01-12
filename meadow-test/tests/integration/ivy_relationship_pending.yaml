@@ -1,0 +1,261 @@
+name: Ivy Relationship Before Target Entity Tests
+description: |
+  Tests that relationships work when target entity doesn't exist yet:
+  1. Send employee entity first
+  2. Send a standalone relationship message pointing to non-existent manager
+  3. Verify relationship is staged
+  4. Send manager entity
+  5. Verify both entities are staged
+
+setup:
+  # Create Person entity type (self-referential for reports_to)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Pending Test Person"
+        key: "pendingperson{{timestamp}}"
+        description: "Person for pending relationship tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            person_id:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create reports_to relationship type (self-referential)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Reports To"
+        key: "reportsto{{timestamp}}"
+        description: "Person reports to another Person"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{person_type.key}}"
+        cardinality: "many_to_one"
+      expect:
+        status: 201
+      save_as: reports_to_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: entities_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: relationships_offset
+
+steps:
+  # ============================================
+  # Step 1: Create Employee Entity First
+  # ============================================
+  - set_variable:
+      name: employee_id
+      value: "employee-{{uuid}}"
+
+  - set_variable:
+      name: manager_id
+      value: "manager-{{uuid}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "pending-employee-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "org_sync"
+          config_id: "org-config-{{uuid}}"
+          execution_id: "org-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "org-exec-{{uuid}}"
+        source_key: "org_sync"
+        config_id: "org-config-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "employee.pending.{{uuid}}@example.com"
+          name: "Employee Person"
+          person_id: "{{employee_id}}"
+          source_id: "{{employee_id}}"
+
+  - wait:
+      duration: "6s"
+
+  # Verify employee was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{entities_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: employee_staged
+
+  # ============================================
+  # Step 2: Send Standalone Relationship Message
+  # This tests direct relationship messages rather than embedded
+  # ============================================
+  
+  - publish_kafka:
+      topic: mapped-data
+      key: "pending-rel-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "org_sync"
+          config_id: "org-config-{{uuid}}"
+          execution_id: "org-exec-rel-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "org-exec-rel-{{uuid}}"
+        source_key: "org_sync"
+        config_id: "org-config-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:00:01Z"
+        target_schema:
+          type: "relationship"
+          entity_type: "{{reports_to_type.key}}"
+        data:
+          _relationship_type: "{{reports_to_type.key}}"
+          _from_entity_type: "{{person_type.key}}"
+          _from_source_id: "{{employee_id}}"
+          _to_entity_type: "{{person_type.key}}"
+          _to_source_id: "{{manager_id}}"
+
+  - wait:
+      duration: "6s"
+
+  # Verify relationship was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_relationships
+      from_offset: "{{relationships_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{reports_to_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: pending_rel
+
+  # ============================================
+  # Step 3: Create Manager (target entity)
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: manager_offset
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "pending-manager-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "org_sync"
+          config_id: "org-config-{{uuid}}"
+          execution_id: "org-exec2-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "org-exec2-{{uuid}}"
+        source_key: "org_sync"
+        config_id: "org-config-{{uuid}}"
+        integration: "workday"
+        timestamp: "2026-01-11T10:01:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "manager.pending.{{uuid}}@example.com"
+          name: "Manager Person"
+          person_id: "{{manager_id}}"
+          source_id: "{{manager_id}}"
+
+  - wait:
+      duration: "5s"
+
+  # Verify manager was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{manager_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: manager_staged
+
+  # Verify both entities and relationship are processed
+  - assert:
+      variable: employee_staged.payload.after.entity_type
+      contains: "pendingperson"
+      message: "Employee should be staged"
+
+  - assert:
+      variable: manager_staged.payload.after.entity_type
+      contains: "pendingperson"
+      message: "Manager should be staged"
+
+  - assert:
+      variable: pending_rel.payload.after.relationship_type
+      contains: "reportsto"
+      message: "Relationship should be staged"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{reports_to_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

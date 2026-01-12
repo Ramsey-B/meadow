@@ -171,6 +171,9 @@ func runSingleTest(config Config, file string) TestResult {
 		testResult.Passed = false
 		testResult.Error = fmt.Sprintf("Failed to load test: %v", err)
 		fmt.Printf("✗ FAILED: %s\n", file)
+		if config.Verbose || config.ShowFailures {
+			fmt.Printf("  Error: %v\n\n", err)
+		}
 		return testResult
 	}
 

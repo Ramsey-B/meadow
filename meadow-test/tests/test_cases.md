@@ -18,12 +18,12 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Smoke Tests   | 4           | 0       | 4       |
 | Orchid        | 40          | 4       | 44      |
 | Lotus         | 72          | 1       | 73      |
-| Ivy           | 36          | 6       | 42      |
+| Ivy           | 39          | 6       | 45      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **163**     | **20**  | **183** |
+| **Total**     | **166**     | **20**  | **186** |
 
-**Current Test Suite: 85 YAML test files (all passing)**
+**Current Test Suite: 89 YAML test files (all passing)**
 
 ---
 
@@ -304,7 +304,9 @@ Quick validation that services are running and reachable.
 | ✅     | Create exact match rule                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
 | ✅     | List match rules by entity type           | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
 | ✅     | Fuzzy match rule (similarity threshold)   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Fuzzy matching via CDC pipeline           | [`integration/ivy_fuzzy_matching.yaml`](integration/ivy_fuzzy_matching.yaml)       |
 | ✅     | Phonetic match rule                       | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
+| ✅     | Phonetic matching via CDC pipeline        | [`integration/ivy_phonetic_matching.yaml`](integration/ivy_phonetic_matching.yaml) |
 | ✅     | Multi-field match rule                    | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
 | ✅     | Match with normalizers (lowercase, phone) | [`integration/ivy_match_normalizers.yaml`](integration/ivy_match_normalizers.yaml) |
 | ✅     | Match priority ordering                   | [`integration/ivy_match_rules_crud.yaml`](integration/ivy_match_rules_crud.yaml)   |
@@ -312,39 +314,37 @@ Quick validation that services are running and reachable.
 
 ### Entity Matching
 
-| Status | Test Case                                      | Test File |
-| ------ | ---------------------------------------------- | --------- |
-| ⬚      | Exact email match                              |           |
-| ⬚      | Fuzzy name match                               |           |
-| ⬚      | Multi-field composite match                    |           |
-| ⬚      | Cross-integration match (OKTA + MS Graph)      |           |
-| ⬚      | Same integration, different source keys        |           |
-| ⬚      | No match (new entity created)                  |           |
-| ⬚      | Match candidate below threshold (review queue) |           |
+| Status | Test Case                                              | Test File                                                                        |
+| ------ | ------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| ✅     | Entity staging via CDC (mapped-data → staged_entities) | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)   |
+| ✅     | Entity merging via CDC (staged → merged_entities)      | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)   |
+| ✅     | Same email merge (two sources → one merged entity)     | [`integration/ivy_same_email_merge.yaml`](integration/ivy_same_email_merge.yaml) |
+| ⬚      | Match candidate below threshold (review queue)         |                                                                                  |
 
 ### Entity Merging
 
-| Status | Test Case                        | Test File |
-| ------ | -------------------------------- | --------- |
-| ⬚      | Auto-merge on high confidence    |           |
-| ⬚      | Merge strategy: most_recent      |           |
-| ⬚      | Merge strategy: prefer_non_empty |           |
-| ⬚      | Merge strategy: prefer_source    |           |
-| ⬚      | Merge updates relationships      |           |
-| ⬚      | Merge multiple source entities   |           |
+| Status | Test Case                                   | Test File                                                                                      |
+| ------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ✅     | Entity staging from multiple integrations   | [`integration/ivy_entity_merging.yaml`](integration/ivy_entity_merging.yaml)                   |
+| ✅     | Multiple source entity merge (source_count) | [`integration/ivy_merge_strategy_behavior.yaml`](integration/ivy_merge_strategy_behavior.yaml) |
+| ⬚      | Merge strategy: most_recent                 |                                                                                                |
+| ⬚      | Merge strategy: prefer_non_empty            |                                                                                                |
+| ⬚      | Merge strategy: prefer_source               |                                                                                                |
+| ⬚      | Merge updates relationships                 |                                                                                                |
 
 ### Relationship Handling
 
-| Status | Test Case                                   | Test File |
-| ------ | ------------------------------------------- | --------- |
-| ⬚      | Direct relationship (source_id → source_id) |           |
-| ⬚      | Relationship before source entity           |           |
-| ⬚      | Relationship before target entity           |           |
-| ⬚      | Relationship before both entities           |           |
-| ⬚      | Criteria-based relationship                 |           |
-| ⬚      | Criteria matches existing entities          |           |
-| ⬚      | Criteria matches future entities            |           |
-| ⬚      | Relationship with properties                |           |
+| Status | Test Case                               | Test File                                                                                      |
+| ------ | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ✅     | Entity staging with relationship types  | [`integration/ivy_relationship_flow.yaml`](integration/ivy_relationship_flow.yaml)             |
+| ✅     | Embedded relationship in entity message | [`integration/ivy_relationship_linking.yaml`](integration/ivy_relationship_linking.yaml)       |
+| ✅     | Relationship with properties            | [`integration/ivy_relationship_properties.yaml`](integration/ivy_relationship_properties.yaml) |
+| ✅     | Relationship before target entity       | [`integration/ivy_relationship_pending.yaml`](integration/ivy_relationship_pending.yaml)       |
+| ✅     | Criteria-based relationship setup       | [`integration/ivy_criteria_relationship.yaml`](integration/ivy_criteria_relationship.yaml)     |
+| ⬚      | Relationship before source entity       |                                                                                                |
+| ⬚      | Relationship before both entities       |                                                                                                |
+| ⬚      | Criteria matches existing entities      |                                                                                                |
+| ⬚      | Criteria matches future entities        |                                                                                                |
 
 ### Match Candidates (Review Queue)
 
@@ -399,15 +399,15 @@ Quick validation that services are running and reachable.
 
 ## Kafka Integration
 
-| Status | Test Case                  | Test File                                                          |
-| ------ | -------------------------- | ------------------------------------------------------------------ |
-| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)   |
-| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)   |
-| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml)   |
-| ✅     | Message with headers       | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml) |
-| ✅     | Filter by header value     | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml) |
-| ⬚      | Message key partitioning   |                                                                    |
-| ⬚      | Consumer group handling    |                                                                    |
+| Status | Test Case                  | Test File                                                                            |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------ |
+| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                     |
+| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                     |
+| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml)                     |
+| ✅     | Message with headers       | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                   |
+| ✅     | Filter by header value     | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                   |
+| ✅     | Message key partitioning   | [`integration/kafka_key_partitioning.yaml`](integration/kafka_key_partitioning.yaml) |
+| ⬚      | Consumer group handling    |                                                                                      |
 
 ---
 
@@ -416,7 +416,7 @@ Quick validation that services are running and reachable.
 Full pipeline tests that exercise multiple services.
 
 | Status | Test Case                                                                     | Test File                                                                                      |
-| ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --- |
 | ✅     | **Basic E2E**: Orchid + Lotus + Ivy integration test                          | [`scenarios/basic_user_flow.yaml`](scenarios/basic_user_flow.yaml)                             |
 | ✅     | **Orchid Execution E2E**: Create plan → trigger execution → verify Kafka      | [`scenarios/orchid_execution_e2e.yaml`](scenarios/orchid_execution_e2e.yaml)                   |
 | ✅     | **OKTA User Sync**: OAuth2 auth → fetch users → verify Kafka with user data   | [`integration/orchid_okta_users_sync.yaml`](integration/orchid_okta_users_sync.yaml)           |
@@ -428,8 +428,8 @@ Full pipeline tests that exercise multiple services.
 | ⬚      | **Device Ownership**: Users + Devices → owns relationships                    |                                                                                                |
 | ⬚      | **Group Membership**: Users + Groups → member_of relationships                |                                                                                                |
 | ⬚      | **Criteria Relationships**: Policy → has_access_to Windows devices            |                                                                                                |
-| ⬚      | **Full CRUD Lifecycle**: Create → Update → Query → Delete                     |                                                                                                |
-| ⬚      | **Error Recovery**: Partial failure → retry → complete                        |                                                                                                |
+| ✅     | **Full CRUD Lifecycle**: Create → Update → Query → Delete                     | [`scenarios/full_crud_lifecycle.yaml`](scenarios/full_crud_lifecycle.yaml)                     |
+| ✅     | **Error Recovery**: Partial failure → retry → complete                        | [`scenarios/error_recovery_e2e.yaml`](scenarios/error_recovery_e2e.yaml)                       |     |
 
 **Note:** E2E tests include comprehensive Kafka message assertions that verify specific field values (user profiles, device properties, etc.) rather than just checking message existence.
 
