@@ -58,6 +58,9 @@ func executeStep(testCtx *TestContext, step map[string]interface{}, stepLabel st
 	case "get_kafka_offset":
 		return steps.GetKafkaOffset(testCtx, params)
 
+	case "assert_kafka_message_group":
+		return steps.AssertKafkaMessageGroup(testCtx, params)
+
 	case "create_integration":
 		return steps.CreateIntegration(testCtx, params)
 

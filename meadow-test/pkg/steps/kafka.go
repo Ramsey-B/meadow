@@ -14,6 +14,183 @@ import (
 	bgkafka "github.com/Ramsey-B/meadow-test/pkg/kafka"
 )
 
+// AssertKafkaMessageGroup consumes Kafka messages using a consumer group (GroupID) and commits offsets.
+// This is useful to validate consumer group semantics (offset commit / resume).
+//
+// Params:
+// - topic (string, required)
+// - group_id (string, required)
+// - expect_not_found (bool, optional): if true, the step passes only if no matching message is found before timeout
+// - timeout (string duration, optional; default 30s)
+// - filter (map, optional):
+//   - headers (map[string]string): required headers to match
+//   - field_contains (string): body field path (dot notation) to check substring
+//   - contains_value (string): substring to require
+// - assertions (list, optional): same assertion format as assert_kafka_message (field/equals/contains/not_empty/etc)
+// - save_as (string, optional): save parsed body as variable
+func AssertKafkaMessageGroup(ctx TestContext, params interface{}) error {
+	paramsMap, ok := params.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("assert_kafka_message_group params must be a map")
+	}
+
+	topic, ok := paramsMap["topic"].(string)
+	if !ok || strings.TrimSpace(topic) == "" {
+		return fmt.Errorf("assert_kafka_message_group requires 'topic'")
+	}
+	topic = ctx.Interpolate(topic).(string)
+
+	groupID, ok := paramsMap["group_id"].(string)
+	if !ok || strings.TrimSpace(groupID) == "" {
+		return fmt.Errorf("assert_kafka_message_group requires 'group_id'")
+	}
+	groupID = ctx.Interpolate(groupID).(string)
+
+	expectNotFound := false
+	if v, ok := paramsMap["expect_not_found"].(bool); ok {
+		expectNotFound = v
+	}
+
+	timeout := 30 * time.Second
+	if t, ok := paramsMap["timeout"].(string); ok && strings.TrimSpace(t) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(ctx.Interpolate(t).(string)))
+		if err != nil {
+			return fmt.Errorf("invalid timeout: %w", err)
+		}
+		timeout = d
+	}
+
+	// Brokers
+	brokersStr := ctx.Interpolate("{{kafka_brokers}}").(string)
+	brokers := strings.Split(brokersStr, ",")
+	if len(brokers) == 0 || strings.TrimSpace(brokers[0]) == "" {
+		return fmt.Errorf("kafka_brokers is empty")
+	}
+
+	// Optional filters
+	headerFilters := map[string]string{}
+	filterFieldContains := ""
+	filterContainsValue := ""
+	if filter, ok := paramsMap["filter"].(map[string]interface{}); ok {
+		if headers, ok := filter["headers"].(map[string]interface{}); ok {
+			for k, v := range headers {
+				headerFilters[k] = ctx.Interpolate(v).(string)
+			}
+		}
+		if fc, ok := filter["field_contains"].(string); ok {
+			filterFieldContains = fc
+		}
+		if cv, ok := filter["contains_value"].(string); ok {
+			filterContainsValue = ctx.Interpolate(cv).(string)
+		}
+	}
+
+	var bodyFilter *bgkafka.BodyFilter
+	if strings.TrimSpace(filterFieldContains) != "" && strings.TrimSpace(filterContainsValue) != "" {
+		bodyFilter = &bgkafka.BodyFilter{
+			FieldPath:     filterFieldContains,
+			ContainsValue: filterContainsValue,
+		}
+	}
+
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:  brokers,
+		Topic:    topic,
+		GroupID:  groupID,
+		MinBytes: 1,
+		MaxBytes: 10e6,
+		// For consumer groups: start at earliest if no committed offset exists yet.
+		StartOffset: kafka.FirstOffset,
+		// Disable auto-commit; we'll commit only after a successful match.
+		CommitInterval: 0,
+	})
+	defer reader.Close()
+
+	deadline := time.Now().Add(timeout)
+	attempts := 0
+
+	for time.Now().Before(deadline) {
+		attempts++
+		readCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		msg, err := reader.ReadMessage(readCtx)
+		cancel()
+		if err != nil {
+			continue
+		}
+
+		// Parse headers
+		headers := map[string]string{}
+		for _, h := range msg.Headers {
+			headers[h.Key] = string(h.Value)
+		}
+
+		// Apply header filters
+		match := true
+		for k, expected := range headerFilters {
+			if headers[k] != expected {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+
+		// Parse body JSON
+		var body map[string]interface{}
+		if err := json.Unmarshal(msg.Value, &body); err != nil {
+			body = map[string]interface{}{
+				"_raw":         string(msg.Value),
+				"_parse_error": err.Error(),
+			}
+		}
+
+		// Apply body filter
+		if bodyFilter != nil {
+			fieldValue, err := navigateFieldPath(body, bodyFilter.FieldPath)
+			if err != nil || fieldValue == nil || !strings.Contains(fmt.Sprintf("%v", fieldValue), bodyFilter.ContainsValue) {
+				continue
+			}
+		}
+
+		if expectNotFound {
+			return fmt.Errorf("unexpectedly found matching message for group_id=%s topic=%s (offset=%d)", groupID, topic, msg.Offset)
+		}
+
+		// Assertions
+		if assertions, ok := paramsMap["assertions"].([]interface{}); ok && len(assertions) > 0 {
+			for i, raw := range assertions {
+				a, ok := raw.(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("assertion %d must be an object", i)
+				}
+				if err := runKafkaAssertion(ctx, msg, body, a); err != nil {
+					return fmt.Errorf("assertion %d failed: %w", i, err)
+				}
+			}
+		}
+
+		// Commit offset on success
+		if err := reader.CommitMessages(context.Background(), msg); err != nil {
+			return fmt.Errorf("failed to commit group offset: %w", err)
+		}
+
+		if saveAs, ok := paramsMap["save_as"].(string); ok && strings.TrimSpace(saveAs) != "" {
+			ctx.Set(saveAs, body)
+		}
+
+		ctx.Log("Found and committed group message after %d attempts (topic=%s group_id=%s offset=%d)", attempts, topic, groupID, msg.Offset)
+		return nil
+	}
+
+	if expectNotFound {
+		ctx.Log("No matching group message found after %d attempts (topic=%s group_id=%s)", attempts, topic, groupID)
+		return nil
+	}
+
+	return fmt.Errorf("failed to find matching message after %d attempts (timeout %s)", attempts, timeout)
+}
+
 // GetKafkaOffset gets the current latest offset for a topic (use before triggering to avoid reading old messages)
 func GetKafkaOffset(ctx TestContext, params interface{}) error {
 	paramsMap, ok := params.(map[string]interface{})

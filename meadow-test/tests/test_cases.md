@@ -18,12 +18,12 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Smoke Tests   | 4           | 0       | 4       |
 | Orchid        | 42          | 2       | 44      |
 | Lotus         | 73          | 0       | 73      |
-| Ivy           | 41          | 4       | 45      |
-| Kafka         | 5           | 2       | 7       |
+| Ivy           | 42          | 3       | 45      |
+| Kafka         | 6           | 1       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **168**     | **18**  | **186** |
+| **Total**     | **170**     | **16**  | **186** |
 
-**Current Test Suite: 121 YAML test files (all passing)**
+**Current Test Suite: 122 YAML test files (all passing)**
 
 ---
 
@@ -329,7 +329,7 @@ Quick validation that services are running and reachable.
 | ✅     | Multiple source entity merge (source_count) | [`integration/ivy_merge_strategy_behavior.yaml`](integration/ivy_merge_strategy_behavior.yaml)         |
 | ✅     | Merge strategy: most_recent                 | [`integration/ivy_merge_most_recent.yaml`](integration/ivy_merge_most_recent.yaml)                     |
 | ✅     | Merge strategy: prefer_non_empty            | [`integration/ivy_merge_prefer_non_empty.yaml`](integration/ivy_merge_prefer_non_empty.yaml)           |
-| ⬚      | Merge strategy: prefer_source               |                                                                                                        |
+| ✅     | Merge strategy: prefer_source               | [`integration/ivy_merge_prefer_source.yaml`](integration/ivy_merge_prefer_source.yaml)                 |
 | ✅     | Merge updates relationships                 | [`integration/ivy_merge_updates_relationships.yaml`](integration/ivy_merge_updates_relationships.yaml) |
 
 ### Relationship Handling
@@ -400,15 +400,15 @@ Quick validation that services are running and reachable.
 
 ## Kafka Integration
 
-| Status | Test Case                  | Test File                                                                            |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------ |
-| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                     |
-| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                     |
-| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml)                     |
-| ✅     | Message with headers       | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                   |
-| ✅     | Filter by header value     | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                   |
-| ✅     | Message key partitioning   | [`integration/kafka_key_partitioning.yaml`](integration/kafka_key_partitioning.yaml) |
-| ⬚      | Consumer group handling    |                                                                                      |
+| Status | Test Case                  | Test File                                                                                          |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| ✅     | Publish message to topic   | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                                   |
+| ✅     | Consume and verify message | [`integration/kafka_pubsub.yaml`](integration/kafka_pubsub.yaml)                                   |
+| ✅     | Topic auto-creation        | [`integration/kafka_simple.yaml`](integration/kafka_simple.yaml)                                   |
+| ✅     | Message with headers       | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                                 |
+| ✅     | Filter by header value     | [`integration/kafka_headers.yaml`](integration/kafka_headers.yaml)                                 |
+| ✅     | Message key partitioning   | [`integration/kafka_key_partitioning.yaml`](integration/kafka_key_partitioning.yaml)               |
+| ✅     | Consumer group handling    | [`integration/kafka_consumer_group_handling.yaml`](integration/kafka_consumer_group_handling.yaml) |
 
 ---
 

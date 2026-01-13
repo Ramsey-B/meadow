@@ -1,0 +1,54 @@
+name: Kafka Consumer Group Handling
+description: |
+  Verifies consumer group commit semantics:
+  - consume a message with a GroupID (commit)
+  - a subsequent consume with the same GroupID should NOT see the old message again
+
+steps:
+  - set_variable:
+      name: group_id
+      value: "meadow-test-cg-{{uuid}}"
+
+  - set_variable:
+      name: msg_id
+      value: "cgmsg-{{uuid}}"
+
+  - publish_kafka:
+      topic: meadow-test-pubsub
+      key: "{{msg_id}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        id: "{{msg_id}}"
+        type: "consumer_group_test"
+        n: 1
+
+  # First consume: should find and commit
+  - assert_kafka_message_group:
+      topic: meadow-test-pubsub
+      group_id: "{{group_id}}"
+      timeout: 30s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+        field_contains: id
+        contains_value: "{{msg_id}}"
+      assertions:
+        - field: id
+          equals: "{{msg_id}}"
+        - header: tenant_id
+          equals: "{{test_tenant}}"
+
+  # Second consume: should NOT find the same message again (offset already committed)
+  - assert_kafka_message_group:
+      topic: meadow-test-pubsub
+      group_id: "{{group_id}}"
+      expect_not_found: true
+      timeout: 2s
+      filter:
+        headers:
+          tenant_id: "{{test_tenant}}"
+        field_contains: id
+        contains_value: "{{msg_id}}"
+
