@@ -1,0 +1,257 @@
+name: Ivy Cascade Delete Relationships
+description: |
+  Verifies that when a merged entity is deleted (all sources removed), Ivy cascades deletion
+  to merged_relationships that reference that merged entity.
+steps:
+  - set_variable:
+      name: person_type_key
+      value: "delperson{{uuid_nodash}}"
+  - set_variable:
+      name: project_type_key
+      value: "delproj{{uuid_nodash}}"
+  - set_variable:
+      name: rel_type_key
+      value: "delrel{{uuid_nodash}}"
+
+  - set_variable:
+      name: p_source_id
+      value: "delp-{{uuid}}"
+  - set_variable:
+      name: proj_source_id
+      value: "delproj-{{uuid}}"
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "{{person_type_key}}"
+        name: "Delete Person {{uuid}}"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              is_identity: true
+          required:
+            - email
+      expect:
+        status: 201
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "{{project_type_key}}"
+        name: "Delete Project {{uuid}}"
+        schema:
+          type: object
+          properties:
+            code:
+              type: string
+              is_identity: true
+          required:
+            - code
+      expect:
+        status: 201
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        key: "{{rel_type_key}}"
+        name: "Member Of"
+        from_entity_type: "{{person_type_key}}"
+        to_entity_type: "{{project_type_key}}"
+        cardinality: "many_to_many"
+        schema:
+          type: object
+          properties:
+            level:
+              type: string
+      expect:
+        status: 201
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_entities_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: merged_relationships_offset
+
+  # Create person + project
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{p_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "del-person"
+          config_id: "delcfg-{{uuid}}"
+          execution_id: "delexec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{person_type_key}}"
+        data:
+          source_id: "{{p_source_id}}"
+          entity_type: "{{person_type_key}}"
+          integration: "okta"
+          email: "del.{{uuid}}@example.com"
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_entities_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.data
+        contains_value: "{{p_source_id}}"
+      assertions:
+        - field: payload.after.id
+          not_empty: true
+      save_as: person_merged_msg
+
+  - set_variable:
+      name: person_merged_id
+      value: "{{person_merged_msg.payload.after.id}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{proj_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "del-proj"
+          config_id: "delcfg-{{uuid}}"
+          execution_id: "delexec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{project_type_key}}"
+        data:
+          source_id: "{{proj_source_id}}"
+          entity_type: "{{project_type_key}}"
+          integration: "jira"
+          code: "DEL-{{timestamp}}"
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_entities_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.data
+        contains_value: "{{proj_source_id}}"
+      assertions:
+        - field: payload.after.id
+          not_empty: true
+      save_as: proj_merged_msg
+
+  - set_variable:
+      name: project_merged_id
+      value: "{{proj_merged_msg.payload.after.id}}"
+
+  # Create relationship (person -> project)
+  - publish_kafka:
+      topic: mapped-data
+      key: "del-rel-{{uuid}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "del-rel"
+          config_id: "delcfg-{{uuid}}"
+          execution_id: "delexec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: relationship
+          relationship_type: "{{rel_type_key}}"
+        data:
+          _relationship_type: "{{rel_type_key}}"
+          _from_entity_type: "{{person_type_key}}"
+          _from_source_id: "{{p_source_id}}"
+          _from_integration: "okta"
+          _to_entity_type: "{{project_type_key}}"
+          _to_source_id: "{{proj_source_id}}"
+          _to_integration: "jira"
+          level: "gold"
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{merged_relationships_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.from_merged_entity_id
+        contains_value: "{{person_merged_id}}"
+      assertions:
+        - field: payload.after.relationship_type
+          equals: "{{rel_type_key}}"
+        - field: payload.after.from_merged_entity_id
+          equals: "{{person_merged_id}}"
+        - field: payload.after.to_merged_entity_id
+          equals: "{{project_merged_id}}"
+      save_as: rel_msg
+
+  - set_variable:
+      name: merged_rel_id
+      value: "{{rel_msg.payload.after.id}}"
+
+  # Delete the person (source_id)
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: delete_entities_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: delete_relationships_offset
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "delete-{{uuid}}"
+      value:
+        action: "delete"
+        entity_type: "{{person_type_key}}"
+        entity_id: "{{p_source_id}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          key: "del-plan"
+          config_id: "delcfg-{{uuid}}"
+          execution_id: "delexec-{{uuid}}"
+
+  # Merged entity should be soft-deleted (deleted_at set)
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{delete_entities_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.id
+        contains_value: "{{person_merged_id}}"
+      assertions:
+        - field: payload.after.id
+          equals: "{{person_merged_id}}"
+        - field: payload.after.deleted_at
+          not_empty: true
+
+  # Relationship should also be soft-deleted (cascade)
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{delete_relationships_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.id
+        contains_value: "{{merged_rel_id}}"
+      assertions:
+        - field: payload.after.id
+          equals: "{{merged_rel_id}}"
+        - field: payload.after.deleted_at
+          not_empty: true
+

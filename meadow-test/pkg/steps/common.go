@@ -11,6 +11,32 @@ import (
 	"time"
 )
 
+// toFloat converts common numeric types (and numeric strings) to float64 for comparisons.
+func toFloat(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, false
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		return f, err == nil
+	default:
+		return 0, false
+	}
+}
+
 // TestContext interface for steps to interact with test execution context
 type TestContext interface {
 	Set(key string, value interface{})
@@ -122,6 +148,31 @@ func Assert(ctx TestContext, params interface{}) error {
 			}
 		}
 
+		// Numeric comparisons
+		if gt, ok := paramsMap["is_greater_than"]; ok {
+			expectedVal := ctx.Interpolate(gt)
+			actualNum, okA := toFloat(val)
+			expectedNum, okE := toFloat(expectedVal)
+			if !okA || !okE {
+				return fmt.Errorf("%s: %s = %v (type %T), expected numeric > %v (type %T)", message, variable, val, val, expectedVal, expectedVal)
+			}
+			if !(actualNum > expectedNum) {
+				return fmt.Errorf("%s: %s = %v is not > %v", message, variable, actualNum, expectedNum)
+			}
+		}
+
+		if lt, ok := paramsMap["is_less_than"]; ok {
+			expectedVal := ctx.Interpolate(lt)
+			actualNum, okA := toFloat(val)
+			expectedNum, okE := toFloat(expectedVal)
+			if !okA || !okE {
+				return fmt.Errorf("%s: %s = %v (type %T), expected numeric < %v (type %T)", message, variable, val, val, expectedVal, expectedVal)
+			}
+			if !(actualNum < expectedNum) {
+				return fmt.Errorf("%s: %s = %v is not < %v", message, variable, actualNum, expectedNum)
+			}
+		}
+
 		if notEquals, ok := paramsMap["not_equals"]; ok {
 			unexpectedVal := ctx.Interpolate(notEquals)
 			if compareValuesForAssert(val, unexpectedVal) {
@@ -189,15 +240,28 @@ func resolveNestedVariable(ctx TestContext, path string) interface{} {
 			return nil
 		}
 
-		// Access array element
-		if arr, ok := val.([]interface{}); ok {
-			if index >= 0 && index < len(arr) {
-				val = arr[index]
+		// Access array element (support common slice types)
+		switch arr := val.(type) {
+		case []interface{}:
+			if index < 0 || index >= len(arr) {
+				return nil
+			}
+			val = arr[index]
+		case []map[string]interface{}:
+			if index < 0 || index >= len(arr) {
+				return nil
+			}
+			val = arr[index]
+		default:
+			rv := reflect.ValueOf(val)
+			if rv.IsValid() && rv.Kind() == reflect.Slice {
+				if index < 0 || index >= rv.Len() {
+					return nil
+				}
+				val = rv.Index(index).Interface()
 			} else {
 				return nil
 			}
-		} else {
-			return nil
 		}
 	} else {
 		val, found = ctx.Get(parts[0])
@@ -232,15 +296,28 @@ func resolveNestedVariable(ctx TestContext, path string) interface{} {
 				return nil
 			}
 
-			// Then access array element
-			if arr, ok := val.([]interface{}); ok {
-				if index >= 0 && index < len(arr) {
-					val = arr[index]
+			// Then access array element (support common slice types)
+			switch arr := val.(type) {
+			case []interface{}:
+				if index < 0 || index >= len(arr) {
+					return nil
+				}
+				val = arr[index]
+			case []map[string]interface{}:
+				if index < 0 || index >= len(arr) {
+					return nil
+				}
+				val = arr[index]
+			default:
+				rv := reflect.ValueOf(val)
+				if rv.IsValid() && rv.Kind() == reflect.Slice {
+					if index < 0 || index >= rv.Len() {
+						return nil
+					}
+					val = rv.Index(index).Interface()
 				} else {
 					return nil
 				}
-			} else {
-				return nil
 			}
 		} else {
 			switch v := val.(type) {

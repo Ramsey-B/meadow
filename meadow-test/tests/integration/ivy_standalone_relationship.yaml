@@ -1,0 +1,293 @@
+name: Ivy Standalone Relationship Message Tests
+description: |
+  Tests standalone relationship messages using the legacy format where ALL
+  relationship metadata is in the data field with underscore prefixes:
+  - _relationship_type
+  - _from_entity_type, _from_source_id, _from_integration
+  - _to_entity_type, _to_source_id, _to_integration
+  
+  This is the format documented in ivy.http and represents how Lotus mappings
+  would typically send relationship data.
+
+setup:
+  # Create Person entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Standalone Rel Person"
+        key: "standaloneperson{{timestamp}}"
+        description: "Person for standalone relationship tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Device entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Standalone Rel Device"
+        key: "standalonedevice{{timestamp}}"
+        description: "Device for standalone relationship tests"
+        schema:
+          type: object
+          properties:
+            serial_number:
+              type: string
+            model:
+              type: string
+          required:
+            - serial_number
+      expect:
+        status: 201
+      save_as: device_type
+
+  # Create "owns" relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Owns Device"
+        key: "ownsdevice{{timestamp}}"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{device_type.key}}"
+        cardinality: "one_to_many"
+      expect:
+        status: 201
+      save_as: rel_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: rel_offset
+
+steps:
+  # ============================================
+  # Step 1: Create the Person entity first
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "standalone-person-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-standalone-{{uuid}}"
+          execution_id: "okta-standalone-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-standalone-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-standalone-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "owner-{{uuid}}@example.com"
+          name: "Device Owner"
+          source_id: "okta-user-{{uuid}}"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for person to be staged"
+
+  # Verify person was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: person_staged
+
+  # ============================================
+  # Step 2: Create the Device entity
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "standalone-device-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "msgraph"
+          key: "devices_sync"
+          config_id: "msgraph-standalone-{{uuid}}"
+          execution_id: "msgraph-standalone-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "msgraph-standalone-exec-{{uuid}}"
+        source_key: "devices_sync"
+        config_id: "msgraph-standalone-{{uuid}}"
+        integration: "msgraph"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{device_type.key}}"
+        data:
+          serial_number: "SN-{{uuid}}"
+          model: "MacBook Pro"
+          source_id: "msgraph-device-{{uuid}}"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for device to be staged"
+
+  # Verify device was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{device_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: device_staged
+
+  # ============================================
+  # Step 3: Send STANDALONE RELATIONSHIP using legacy format
+  # All metadata in data with underscore prefixes, NO target_schema.relationship_type
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: rel_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "standalone-owns-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "custom"
+          key: "ownership_sync"
+          config_id: "custom-ownership-{{uuid}}"
+          execution_id: "custom-ownership-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "custom-ownership-exec-{{uuid}}"
+        source_key: "ownership_sync"
+        config_id: "custom-ownership-{{uuid}}"
+        integration: "custom"
+        timestamp: "2024-01-01T11:00:00Z"
+        # NOTE: Using legacy format - NO target_schema with relationship_type
+        # Instead, _relationship_type is in the data field
+        data:
+          _relationship_type: "{{rel_type.key}}"
+          _from_entity_type: "{{person_type.key}}"
+          _from_source_id: "okta-user-{{uuid}}"
+          _from_integration: "okta"
+          _to_entity_type: "{{device_type.key}}"
+          _to_source_id: "msgraph-device-{{uuid}}"
+          _to_integration: "msgraph"
+          assigned_date: "2024-01-01"
+          is_primary: true
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for relationship to be staged"
+
+  # Verify relationship was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_relationships
+      from_offset: "{{rel_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        # Verify relationship was staged with correct type
+        - field: payload.after.relationship_type
+          contains: "ownsdevice"
+        # Note: from/to_staged_entity_id linking may happen asynchronously
+      save_as: rel_staged
+
+  # Final assertions
+  - assert:
+      variable: person_staged.payload.after.entity_type
+      contains: "standaloneperson"
+      message: "Person should be staged"
+
+  - assert:
+      variable: device_staged.payload.after.entity_type
+      contains: "standalonedevice"
+      message: "Device should be staged"
+
+  - assert:
+      variable: rel_staged.payload.after.relationship_type
+      contains: "ownsdevice"
+      message: "Relationship should be staged using legacy _relationship_type format"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{rel_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{device_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

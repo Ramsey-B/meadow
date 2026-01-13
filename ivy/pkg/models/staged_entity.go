@@ -247,9 +247,10 @@ type LotusMessageSource struct {
 
 // TargetSchema identifies the target entity/relationship type
 type TargetSchema struct {
-	Type       string `json:"type"`        // "entity" or "relationship"
-	EntityType string `json:"entity_type"` // e.g., "person"
-	Version    int    `json:"version,omitempty"`
+	Type             string `json:"type"`                        // "entity" or "relationship"
+	EntityType       string `json:"entity_type,omitempty"`       // e.g., "person" (for entities)
+	RelationshipType string `json:"relationship_type,omitempty"` // e.g., "works_at" (for relationships)
+	Version          int    `json:"version,omitempty"`
 }
 
 // LotusRelationship represents a relationship in a Lotus message

@@ -533,7 +533,8 @@ func assertKafkaMessageFromOffset(ctx TestContext, paramsMap map[string]interfac
 
 	// Wait for a message matching the header AND body filters from the background consumer
 	ctx.Log("Waiting for Kafka message with filters: %v, required_field: %s (timeout: %s)", headerFilters, filterHasField, timeout)
-	msg, err := consumer.WaitForMessageWithBodyFilter(headerFilters, filterHasField, bodyFilter, timeout)
+	// Enforce from_offset even when reusing a background consumer for this topic.
+	msg, err := consumer.WaitForMessageWithBodyFilterFromOffset(startOffset, headerFilters, filterHasField, bodyFilter, timeout)
 	if err != nil {
 		return fmt.Errorf("failed to find matching message: %w", err)
 	}

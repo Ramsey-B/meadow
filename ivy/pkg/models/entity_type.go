@@ -23,6 +23,11 @@ type EntityType struct {
 type EntityTypeSchema struct {
 	Properties map[string]PropertyDefinition `json:"properties"`
 	Required   []string                      `json:"required,omitempty"`
+
+	// SourcePriorities is an Ivy extension that configures source trust ordering for
+	// merge strategies like "source_priority" / "prefer_source".
+	// Higher priority wins.
+	SourcePriorities []SourcePriority `json:"source_priorities,omitempty"`
 }
 
 // PropertyDefinition defines a single property in the entity schema

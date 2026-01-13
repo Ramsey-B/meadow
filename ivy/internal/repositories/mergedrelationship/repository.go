@@ -143,6 +143,125 @@ func (r *Repository) SoftDelete(ctx context.Context, tenantID string, mergedRelI
 	return nil
 }
 
+// SoftDeleteByMergedEntityID marks all merged relationships involving a merged entity as deleted.
+// This is used when a merged entity is soft-deleted (all sources removed) to cascade relationship deletions.
+func (r *Repository) SoftDeleteByMergedEntityID(ctx context.Context, tenantID string, mergedEntityID string) (int64, error) {
+	ctx, span := tracing.StartSpan(ctx, "mergedrelationship.Repository.SoftDeleteByMergedEntityID")
+	defer span.End()
+
+	now := time.Now().UTC()
+	sb := sqlbuilder.PostgreSQL.NewUpdateBuilder()
+	sb.Update("merged_relationships")
+	sb.Set(sb.Assign("deleted_at", now))
+	sb.Where(
+		sb.Equal("tenant_id", tenantID),
+		sb.IsNull("deleted_at"),
+		sb.Or(
+			sb.Equal("from_merged_entity_id", mergedEntityID),
+			sb.Equal("to_merged_entity_id", mergedEntityID),
+		),
+	)
+
+	query, args := sb.Build()
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		r.logger.WithContext(ctx).WithError(err).Error("Failed to soft delete merged relationships by merged entity ID")
+		return 0, httperror.NewHTTPError(http.StatusInternalServerError, "failed to soft delete merged relationships")
+	}
+	rows, _ := result.RowsAffected()
+	return rows, nil
+}
+
+// RewireMergedEntity rewires merged_relationships that reference fromMergedEntityID so they reference toMergedEntityID.
+//
+// This is required when entity clusters consolidate: staged entities may move from one merged entity ID to another,
+// and any existing merged relationships should be recreated (deterministic ID changes) and their clusters moved.
+func (r *Repository) RewireMergedEntity(ctx context.Context, tenantID string, fromMergedEntityID, toMergedEntityID string) (int, error) {
+	ctx, span := tracing.StartSpan(ctx, "mergedrelationship.Repository.RewireMergedEntity")
+	defer span.End()
+
+	// Find active merged relationships that reference the old merged entity.
+	sb := sqlbuilder.PostgreSQL.NewSelectBuilder()
+	sb.Select("id", "tenant_id", "relationship_type", "from_entity_type", "from_merged_entity_id", "to_entity_type", "to_merged_entity_id", "data", "created_at", "updated_at", "deleted_at")
+	sb.From("merged_relationships")
+	sb.Where(
+		sb.Equal("tenant_id", tenantID),
+		sb.IsNull("deleted_at"),
+		sb.Or(
+			sb.Equal("from_merged_entity_id", fromMergedEntityID),
+			sb.Equal("to_merged_entity_id", fromMergedEntityID),
+		),
+	)
+
+	query, args := sb.Build()
+	var rels []models.MergedRelationship
+	if err := r.db.SelectContext(ctx, &rels, query, args...); err != nil {
+		r.logger.WithContext(ctx).WithError(err).Error("Failed to find merged relationships for rewiring")
+		return 0, httperror.NewHTTPError(http.StatusInternalServerError, "failed to find merged relationships for rewiring")
+	}
+
+	rewired := 0
+	for _, rel := range rels {
+		newFrom := rel.FromMergedEntityID
+		newTo := rel.ToMergedEntityID
+		if newFrom == fromMergedEntityID {
+			newFrom = toMergedEntityID
+		}
+		if newTo == fromMergedEntityID {
+			newTo = toMergedEntityID
+		}
+
+		// If nothing changes, skip.
+		if newFrom == rel.FromMergedEntityID && newTo == rel.ToMergedEntityID {
+			continue
+		}
+
+		// Create or update the target merged relationship (deterministic ID is based on merged entity IDs).
+		upserted, err := r.Upsert(ctx, tenantID, models.CreateMergedRelationshipRequest{
+			RelationshipType:   rel.RelationshipType,
+			FromEntityType:     rel.FromEntityType,
+			FromMergedEntityID: newFrom,
+			ToEntityType:       rel.ToEntityType,
+			ToMergedEntityID:   newTo,
+			Data:               rel.Data,
+		})
+		if err != nil {
+			r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+				"old_rel_id": rel.ID,
+			}).Error("Failed to upsert rewired merged relationship")
+			return rewired, err
+		}
+
+		// Move relationship cluster memberships to the new merged relationship ID.
+		// NOTE: relationship_clusters has UNIQUE(tenant_id, staged_relationship_id), so we can update in place.
+		{
+			ub := sqlbuilder.PostgreSQL.NewUpdateBuilder()
+			ub.Update("relationship_clusters")
+			ub.Set(ub.Assign("merged_relationship_id", upserted.ID))
+			ub.Where(
+				ub.Equal("tenant_id", tenantID),
+				ub.Equal("merged_relationship_id", rel.ID),
+			)
+			uq, uargs := ub.Build()
+			if _, err := r.db.ExecContext(ctx, uq, uargs...); err != nil {
+				r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
+					"old_rel_id": rel.ID,
+					"new_rel_id": upserted.ID,
+				}).Error("Failed to move relationship cluster members during rewiring")
+				return rewired, httperror.NewHTTPError(http.StatusInternalServerError, "failed to move relationship cluster members")
+			}
+		}
+
+		// Soft delete the old merged relationship (unless it ended up being the same ID).
+		if rel.ID != upserted.ID {
+			_ = r.SoftDelete(ctx, tenantID, rel.ID)
+		}
+		rewired++
+	}
+
+	return rewired, nil
+}
+
 func (r *Repository) Validate() error {
 	if r.db == nil {
 		return fmt.Errorf("db is nil")

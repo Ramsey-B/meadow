@@ -151,6 +151,9 @@ func (tc *TestContext) interpolateString(s string) string {
 			return fmt.Sprintf("%d", time.Now().Unix())
 		case "uuid":
 			return uuid.New().String()
+	case "uuid_nodash":
+		// Useful for Ivy keys that require validate:"alphanum" (UUIDs contain dashes).
+		return strings.ReplaceAll(uuid.New().String(), "-", "")
 		}
 
 		// Check environment variables

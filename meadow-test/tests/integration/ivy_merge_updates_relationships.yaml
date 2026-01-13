@@ -1,0 +1,384 @@
+name: Ivy Merge Updates Relationships
+description: |
+  Verifies that when Ivy consolidates merged entity clusters, any existing merged relationships
+  referencing the old merged entity ID are rewired to the surviving merged entity ID.
+steps:
+  # ----------------------------------------------------------------------------
+  # Setup: create entity types + relationship type + match rules that can cause consolidation
+  # ----------------------------------------------------------------------------
+  - set_variable:
+      name: person_type_key
+      value: "rewireperson{{uuid_nodash}}"
+  - set_variable:
+      name: project_type_key
+      value: "rewireproj{{uuid_nodash}}"
+  - set_variable:
+      name: rel_type_key
+      value: "assignedto{{uuid_nodash}}"
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "{{person_type_key}}"
+        name: "Rewire Person {{uuid}}"
+        description: "Person entity used for relationship rewiring tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+              is_identity: true
+            phone:
+              type: string
+              is_identity: true
+          required:
+            - email
+      expect:
+        status: 201
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        key: "{{project_type_key}}"
+        name: "Rewire Project {{uuid}}"
+        description: "Project entity used for relationship rewiring tests"
+        schema:
+          type: object
+          properties:
+            code:
+              type: string
+              is_identity: true
+          required:
+            - code
+      expect:
+        status: 201
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        key: "{{rel_type_key}}"
+        name: "Assigned To"
+        description: "Person assigned to project"
+        from_entity_type: "{{person_type_key}}"
+        to_entity_type: "{{project_type_key}}"
+        cardinality: "many_to_many"
+        schema:
+          type: object
+          properties:
+            role:
+              type: string
+      expect:
+        status: 201
+
+  # Two match rules: email exact + phone exact.
+  # Person3 has BOTH and will match both clusters, forcing consolidation.
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{person_type_key}}"
+        name: "Email Exact"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{person_type_key}}"
+        name: "Phone Exact"
+        priority: 90
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "phone"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+
+  - set_variable:
+      name: shared_email
+      value: "rewire.{{uuid}}@example.com"
+  - set_variable:
+      name: shared_phone
+      value: "555{{timestamp}}"
+
+  - set_variable:
+      name: p1_source_id
+      value: "p1-{{uuid}}"
+  - set_variable:
+      name: p2_source_id
+      value: "p2-{{uuid}}"
+  - set_variable:
+      name: p3_source_id
+      value: "p3-{{uuid}}"
+  - set_variable:
+      name: proj_source_id
+      value: "proj-{{uuid}}"
+
+  # We'll take per-publish offsets to avoid ambiguous matching.
+
+  # ----------------------------------------------------------------------------
+  # Create initial clusters + a merged relationship that references cluster-2
+  # ----------------------------------------------------------------------------
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{p1_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "rewire-p1"
+          config_id: "okta-rewire-{{uuid}}"
+          execution_id: "okta-rewire-exec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{person_type_key}}"
+        data:
+          source_id: "{{p1_source_id}}"
+          entity_type: "{{person_type_key}}"
+          integration: "okta"
+          email: "{{shared_email}}"
+          phone: "111"
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: p1_merged_offset
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{p1_merged_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.data
+        contains_value: "{{shared_email}}"
+      assertions:
+        # Debezium emits JSONB columns as strings in this pipeline; assert via substring match.
+        - field: payload.after.data
+          contains: "{{shared_email}}"
+        - field: payload.after.data
+          contains: "{{p1_source_id}}"
+        - field: payload.after.id
+          not_empty: true
+      save_as: m1_msg
+
+  - set_variable:
+      name: merged1_id
+      value: "{{m1_msg.payload.after.id}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{proj_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "rewire-proj"
+          config_id: "jira-rewire-{{uuid}}"
+          execution_id: "jira-rewire-exec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{project_type_key}}"
+        data:
+          source_id: "{{proj_source_id}}"
+          entity_type: "{{project_type_key}}"
+          integration: "jira"
+          code: "PRJ-{{timestamp}}"
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: proj_merged_offset
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{proj_merged_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.data
+        contains_value: "{{proj_source_id}}"
+      assertions:
+        - field: payload.after.id
+          not_empty: true
+        - field: payload.after.data
+          contains: "{{proj_source_id}}"
+      save_as: proj_msg
+
+  - set_variable:
+      name: project_merged_id
+      value: "{{proj_msg.payload.after.id}}"
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{p2_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "rewire-p2"
+          config_id: "wd-rewire-{{uuid}}"
+          execution_id: "wd-rewire-exec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{person_type_key}}"
+        data:
+          source_id: "{{p2_source_id}}"
+          entity_type: "{{person_type_key}}"
+          integration: "workday"
+          email: "p2.{{uuid}}@example.com"
+          phone: "{{shared_phone}}"
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: p2_merged_offset
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{p2_merged_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.data
+        contains_value: "{{p2_source_id}}"
+      assertions:
+        - field: payload.after.id
+          not_empty: true
+        - field: payload.after.data
+          contains: "{{p2_source_id}}"
+      save_as: m2_msg
+
+  - set_variable:
+      name: merged2_id
+      value: "{{m2_msg.payload.after.id}}"
+
+  # Relationship message: Person2 -> Project
+  - publish_kafka:
+      topic: mapped-data
+      key: "rel-{{uuid}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "rewire-rel"
+          config_id: "relcfg-{{uuid}}"
+          execution_id: "relexec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: relationship
+          relationship_type: "{{rel_type_key}}"
+        data:
+          _relationship_type: "{{rel_type_key}}"
+          _from_entity_type: "{{person_type_key}}"
+          _from_source_id: "{{p2_source_id}}"
+          _from_integration: "workday"
+          _to_entity_type: "{{project_type_key}}"
+          _to_source_id: "{{proj_source_id}}"
+          _to_integration: "jira"
+          role: "dev"
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: rel_before_offset
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{rel_before_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.from_merged_entity_id
+        contains_value: "{{merged2_id}}"
+      assertions:
+        - field: payload.after.relationship_type
+          equals: "{{rel_type_key}}"
+        - field: payload.after.from_merged_entity_id
+          equals: "{{merged2_id}}"
+        - field: payload.after.to_merged_entity_id
+          equals: "{{project_merged_id}}"
+      save_as: rel_before
+
+  - set_variable:
+      name: old_rel_id
+      value: "{{rel_before.payload.after.id}}"
+
+  # ----------------------------------------------------------------------------
+  # Trigger consolidation: Person3 matches Person1 by email and Person2 by phone.
+  # Expect: merged2 is consolidated into merged1; relationship rewired to merged1.
+  # ----------------------------------------------------------------------------
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: rewiring_offset
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "{{p3_source_id}}"
+      value:
+        source:
+          tenant_id: "{{test_tenant}}"
+          key: "rewire-p3"
+          config_id: "aad-rewire-{{uuid}}"
+          execution_id: "aad-rewire-exec-{{uuid}}"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: entity
+          entity_type: "{{person_type_key}}"
+        data:
+          source_id: "{{p3_source_id}}"
+          entity_type: "{{person_type_key}}"
+          integration: "azuread"
+          email: "{{shared_email}}"
+          phone: "{{shared_phone}}"
+
+  # Rewired relationship should now point from merged1 -> project
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{rewiring_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type_key}}"
+      assertions:
+        - field: payload.after.relationship_type
+          equals: "{{rel_type_key}}"
+        - field: payload.after.from_merged_entity_id
+          equals: "{{merged1_id}}"
+        - field: payload.after.to_merged_entity_id
+          equals: "{{project_merged_id}}"
+
+  # Old relationship should be soft-deleted (deleted_at set)
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{rewiring_offset}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.id
+        contains_value: "{{old_rel_id}}"
+      assertions:
+        - field: payload.after.id
+          equals: "{{old_rel_id}}"
+        - field: payload.after.deleted_at
+          not_empty: true
+

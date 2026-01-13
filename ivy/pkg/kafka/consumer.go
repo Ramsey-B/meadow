@@ -169,6 +169,17 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) {
 		}
 	}
 
+	// Even if the message *can* be parsed as a LotusMessage (because it shares a "source" field),
+	// it might actually be a delete instruction. Detect and parse deletes here so Processor can route correctly.
+	if incoming.DeleteMessage == nil && incoming.IsDeleteMessage() {
+		if del, delErr := incoming.ParseDeleteMessage(); delErr == nil {
+			incoming.DeleteMessage = del
+			incoming.LotusMessage = nil
+		} else {
+			log.WithError(delErr).Error("Failed to parse delete message")
+		}
+	}
+
 	// Process the message
 	if err := c.handler(ctx, incoming); err != nil {
 		// Do NOT commit on processing failure. This ensures at-least-once processing so

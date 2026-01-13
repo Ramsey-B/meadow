@@ -1,0 +1,233 @@
+name: Orchid Global Rate Limits
+description: |
+  Verifies plan_definition.rate_limits supports GLOBAL throttling (i.e., applies across all matching endpoints).
+
+  We configure a global bucket that matches both the list endpoint and all item endpoints.
+  With requests=1 per 3s and 4 total requests (list + 3 sub-steps), the execution should exceed
+  max_execution_seconds and end in a failed execution.completed event.
+
+steps:
+  - set_variable:
+      name: mock_list_path
+      value: "/mock/rlg-list-{{uuid}}"
+
+  - set_variable:
+      name: mock_a1_path
+      value: "/mock/rlg-a-{{uuid}}-1"
+  - set_variable:
+      name: mock_a2_path
+      value: "/mock/rlg-a-{{uuid}}-2"
+  - set_variable:
+      name: mock_b_path
+      value: "/mock/rlg-b-{{uuid}}"
+
+  # Configure list endpoint (returns the fanout items)
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_list_path}}"
+        response:
+          status: 200
+          body:
+            - path: "{{mock_a1_path}}"
+            - path: "{{mock_a2_path}}"
+            - path: "{{mock_b_path}}"
+      expect:
+        status: 200
+
+  # Configure item endpoints
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_a1_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "A1"
+      expect:
+        status: 200
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_a2_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "A2"
+      expect:
+        status: 200
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_b_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "B"
+      expect:
+        status: 200
+
+  # Create integration + config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Global Rate Limit Test {{uuid}}"
+        description: "Test global rate limits"
+        config_schema:
+          name: "Rate Limit Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Global Rate Limit Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan: global rate limit bucket matches all paths in this test (rlg-*)
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "global-rl-{{uuid}}"
+        name: "Global Rate Limit Plan"
+        description: "Global rate limit should throttle all endpoints and cause timeout"
+        # Keep disabled so the scheduler doesn't also run it; we only want the manual trigger execution.
+        enabled: false
+        plan_definition:
+          rate_limits:
+            - name: "global_bucket"
+              endpoint: "rlg-"
+              requests: 1
+              window_secs: 3
+              scope: "global"
+          max_execution_seconds: 5
+          step:
+            url: "{{ config.base_url }}{{mock_list_path}}"
+            method: GET
+            iterate_over: "response.body"
+            concurrency: 1
+            sub_steps:
+              - id: get_item
+                url: "{{ config.base_url }}{{ item.path }}"
+                method: GET
+      expect:
+        status: 201
+      save_as: plan
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: resp_offset
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+
+  # Assert execution.completed indicates failure (timeout from global throttling)
+  - assert_kafka_message:
+      topic: api-responses
+      from_offset: "{{resp_offset}}"
+      timeout: 90s
+      filter:
+        headers:
+          plan_key: "{{plan.key}}"
+        has_field: type
+        field_contains: type
+        contains_value: "execution.completed"
+      assertions:
+        - field: type
+          equals: "execution.completed"
+        - field: status
+          equals: "failed"
+      save_as: completed
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_list_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_a1_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_a2_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_b_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

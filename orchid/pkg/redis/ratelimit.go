@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 var (
@@ -26,6 +27,31 @@ type RateLimitResult struct {
 type RateLimiter struct {
 	client    *Client
 	keyPrefix string
+}
+
+func toInt64(v interface{}) (int64, error) {
+	switch n := v.(type) {
+	case int64:
+		return n, nil
+	case int:
+		return int64(n), nil
+	case float64:
+		return int64(n), nil
+	case string:
+		// Redis Lua returns numbers as strings sometimes (e.g., zrange WITHSCORES)
+		parsed, err := strconv.ParseInt(n, 10, 64)
+		if err != nil {
+			// Try float parse then cast
+			f, ferr := strconv.ParseFloat(n, 64)
+			if ferr != nil {
+				return 0, err
+			}
+			return int64(f), nil
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("unexpected numeric type %T", v)
+	}
 }
 
 func (r *RateLimiter) blockKey(key string) string {
@@ -89,7 +115,7 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int64, window
 	}
 
 	// Use Lua script for atomic operation
-	script := redis.NewScript(`
+	script := goredis.NewScript(`
 		local key = KEYS[1]
 		local now = tonumber(ARGV[1])
 		local window_start = tonumber(ARGV[2])
@@ -128,8 +154,15 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int64, window
 		return nil, err
 	}
 
-	allowed := result[0].(int64) == 1
-	remaining := result[1].(int64)
+	allowedFlag, err := toInt64(result[0])
+	if err != nil {
+		return nil, err
+	}
+	remaining, err := toInt64(result[1])
+	if err != nil {
+		return nil, err
+	}
+	allowed := allowedFlag == 1
 
 	res := &RateLimitResult{
 		Allowed:   allowed,
@@ -138,7 +171,10 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int64, window
 	}
 
 	if !allowed && len(result) > 2 {
-		oldestMs := result[2].(int64)
+		oldestMs, err := toInt64(result[2])
+		if err != nil {
+			return nil, err
+		}
 		if oldestMs > 0 {
 			oldestTime := time.UnixMilli(oldestMs)
 			res.RetryIn = oldestTime.Add(window).Sub(now)
@@ -154,7 +190,7 @@ func (r *RateLimiter) AllowN(ctx context.Context, key string, limit int64, windo
 	windowStart := now.Add(-window)
 	rateKey := r.keyPrefix + key
 
-	script := redis.NewScript(`
+	script := goredis.NewScript(`
 		local key = KEYS[1]
 		local now = tonumber(ARGV[1])
 		local window_start = tonumber(ARGV[2])
@@ -192,8 +228,15 @@ func (r *RateLimiter) AllowN(ctx context.Context, key string, limit int64, windo
 		return nil, err
 	}
 
-	allowed := result[0].(int64) == 1
-	remaining := result[1].(int64)
+	allowedFlag, err := toInt64(result[0])
+	if err != nil {
+		return nil, err
+	}
+	remaining, err := toInt64(result[1])
+	if err != nil {
+		return nil, err
+	}
+	allowed := allowedFlag == 1
 
 	res := &RateLimitResult{
 		Allowed:   allowed,
@@ -202,7 +245,10 @@ func (r *RateLimiter) AllowN(ctx context.Context, key string, limit int64, windo
 	}
 
 	if !allowed && len(result) > 2 {
-		oldestMs := result[2].(int64)
+		oldestMs, err := toInt64(result[2])
+		if err != nil {
+			return nil, err
+		}
 		if oldestMs > 0 {
 			oldestTime := time.UnixMilli(oldestMs)
 			res.RetryIn = oldestTime.Add(window).Sub(now)

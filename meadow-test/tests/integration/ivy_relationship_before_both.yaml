@@ -1,0 +1,285 @@
+name: Ivy Relationship Before Both Entities Tests
+description: |
+  Tests that a relationship can be staged even when NEITHER the source 
+  nor target entity exists yet. Both from_staged_entity_id and 
+  to_staged_entity_id should be NULL.
+
+setup:
+  # Create Person entity type (source)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Before Both Person"
+        key: "bfbothperson{{timestamp}}"
+        description: "Person for relationship before both tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Project entity type (target)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Before Both Project"
+        key: "bfbothproject{{timestamp}}"
+        description: "Project for relationship tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            code:
+              type: string
+          required:
+            - code
+      expect:
+        status: 201
+      save_as: project_type
+
+  # Create relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Leads Project"
+        key: "leadsproject{{timestamp}}"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{project_type.key}}"
+        cardinality: "one_to_many"
+      expect:
+        status: 201
+      save_as: rel_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: rel_offset
+
+steps:
+  # ============================================
+  # Step 1: Send RELATIONSHIP before EITHER entity exists
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "bfboth-rel-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "jira"
+          key: "leads_sync"
+          config_id: "jira-leads-{{uuid}}"
+          execution_id: "jira-leads-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "jira-leads-exec-{{uuid}}"
+        source_key: "leads_sync"
+        config_id: "jira-leads-{{uuid}}"
+        integration: "jira"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "relationship"
+          relationship_type: "{{rel_type.key}}"
+        data:
+          _from_source_id: "future-person-{{uuid}}"
+          _from_entity_type: "{{person_type.key}}"
+          _from_integration: "okta"
+          _to_source_id: "future-project-{{uuid}}"
+          _to_entity_type: "{{project_type.key}}"
+          _to_integration: "jira"
+          started_at: "2024-01-01"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for relationship to be staged"
+
+  # Verify relationship was staged with BOTH entity IDs NULL
+  - assert_kafka_message:
+      topic: ivy.public.staged_relationships
+      from_offset: "{{rel_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        # Relationship should be staged (entity IDs will be NULL since entities don't exist yet)
+        - field: payload.after.relationship_type
+          contains: "leadsproject"
+      save_as: rel_staged
+
+  # ============================================
+  # Step 2: Send the SOURCE entity (Person)
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "bfboth-person-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-bfboth-{{uuid}}"
+          execution_id: "okta-bfboth-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-bfboth-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-bfboth-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T11:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "future-{{uuid}}@example.com"
+          name: "Future Person"
+          source_id: "future-person-{{uuid}}"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for person to be staged"
+
+  # Verify person was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: person_staged
+
+  # ============================================
+  # Step 3: Send the TARGET entity (Project)
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset_3
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "bfboth-project-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "jira"
+          key: "projects_sync"
+          config_id: "jira-bfboth-{{uuid}}"
+          execution_id: "jira-bfboth-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "jira-bfboth-exec-{{uuid}}"
+        source_key: "projects_sync"
+        config_id: "jira-bfboth-{{uuid}}"
+        integration: "jira"
+        timestamp: "2024-01-01T12:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{project_type.key}}"
+        data:
+          name: "Future Project"
+          code: "future-proj-{{uuid}}"
+          source_id: "future-project-{{uuid}}"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for project to be staged"
+
+  # Verify project was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset_3}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{project_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: project_staged
+
+  # Verify all entities and relationship created
+  - assert:
+      variable: rel_staged.payload.after.relationship_type
+      contains: "leadsproject"
+      message: "Relationship should be staged first"
+
+  - assert:
+      variable: person_staged.payload.after.entity_type
+      contains: "bfbothperson"
+      message: "Person (source) should be staged second"
+
+  - assert:
+      variable: project_staged.payload.after.entity_type
+      contains: "bfbothproject"
+      message: "Project (target) should be staged third"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{rel_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{project_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

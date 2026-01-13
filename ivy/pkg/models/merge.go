@@ -35,6 +35,8 @@ const (
 	MergeStrategyPreferNonEmpty MergeStrategyType = "prefer_non_empty"
 	// MergeStrategySourcePriority uses value from highest priority source
 	MergeStrategySourcePriority MergeStrategyType = "source_priority"
+	// MergeStrategyPreferSource is an alias for source_priority (backwards compatible naming)
+	MergeStrategyPreferSource MergeStrategyType = "prefer_source"
 )
 
 // MergeStrategy defines merge strategies for an entity type

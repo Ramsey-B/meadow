@@ -5,7 +5,9 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main ./cmd"
+  # Force readonly module mode so we don't get stuck in workspace vendor mode.
+  # This will use the local module cache and will NOT attempt network downloads.
+  cmd = "go build -mod=readonly -o ./tmp/main ./cmd"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata"]
   exclude_file = []

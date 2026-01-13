@@ -9,6 +9,7 @@ import (
 
 	"github.com/Gobusters/ectologger"
 	"github.com/Ramsey-B/ivy/internal/repositories/entitytype"
+	"github.com/Ramsey-B/ivy/internal/repositories/mergedrelationship"
 	"github.com/Ramsey-B/stem/pkg/tracing"
 
 	"github.com/Ramsey-B/ivy/internal/repositories/mergedentity"
@@ -22,6 +23,7 @@ type Engine struct {
 	logger         ectologger.Logger
 	entityRepo     *stagedentity.Repository
 	mergedRepo     *mergedentity.Repository
+	mergedRelRepo  *mergedrelationship.Repository
 	entityTypeRepo *entitytype.Repository
 	fieldMerger    *FieldMerger
 }
@@ -31,12 +33,14 @@ func NewEngine(
 	logger ectologger.Logger,
 	entityRepo *stagedentity.Repository,
 	mergedRepo *mergedentity.Repository,
+	mergedRelRepo *mergedrelationship.Repository,
 	entityTypeRepo *entitytype.Repository,
 ) *Engine {
 	return &Engine{
 		logger:         logger,
 		entityRepo:     entityRepo,
 		mergedRepo:     mergedRepo,
+		mergedRelRepo:  mergedRelRepo,
 		entityTypeRepo: entityTypeRepo,
 		fieldMerger:    NewFieldMerger(),
 	}
@@ -72,7 +76,12 @@ func (e *Engine) MergeWithMatches(
 	}
 
 	fieldStrategies := deriveFieldStrategiesFromSchema(schema)
-	sourcePriorities := []models.SourcePriority{} // Could be extended to support source priority config
+	sourcePriorities := schema.SourcePriorities
+	if len(sourcePriorities) > 0 {
+		log.WithFields(map[string]any{
+			"source_priorities_count": len(sourcePriorities),
+		}).Debug("Loaded source priorities from entity type schema")
+	}
 
 	// Filter out blocked matches (no-merge rules)
 	validMatches := make([]matching.MatchOutcome, 0, len(matchResults.Matches))
@@ -209,8 +218,17 @@ func (e *Engine) mergeEntityWithMatches(
 		return nil, err
 	}
 
-	// Append the source entity to the list of entities
-	allEntities = append(allEntities, *sourceEntity)
+	// Ensure the source entity is included (repo should return it, but be defensive).
+	foundSource := false
+	for i := range allEntities {
+		if allEntities[i].ID == sourceEntity.ID {
+			foundSource = true
+			break
+		}
+	}
+	if !foundSource {
+		allEntities = append(allEntities, *sourceEntity)
+	}
 
 	if len(allEntities) == 1 {
 		// Only source entity loaded (all matches failed to load) - treat as single entity
@@ -386,6 +404,14 @@ func (e *Engine) consolidateClusters(
 
 		if err := e.mergedRepo.MoveClusterMembers(ctx, sourceEntity.TenantID, cluster.ID, survivingCluster.ID); err != nil {
 			return nil, err
+		}
+
+		// Rewire merged relationships that referenced the old merged entity ID.
+		// This ensures golden edges follow the surviving merged entity after consolidation.
+		if e.mergedRelRepo != nil {
+			if _, err := e.mergedRelRepo.RewireMergedEntity(ctx, sourceEntity.TenantID, cluster.ID, survivingCluster.ID); err != nil {
+				return nil, err
+			}
 		}
 
 		// Soft-delete the now-empty cluster

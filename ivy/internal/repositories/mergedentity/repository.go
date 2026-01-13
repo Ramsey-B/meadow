@@ -324,25 +324,33 @@ type StagedToMergedMapping struct {
 }
 
 // GetMergedEntityIDsForRuleCriteria efficiently retrieves merged entity IDs for all staged entities
-// matching the given rule criteria (entity_type, source_id, and optionally a data field).
+// matching the given rule criteria (entity_type, source_id, integration).
 // This is optimized to fetch all matching entities and their merged IDs in a single JOIN query.
-//
-// sourceField specifies which field to match:
-// - "source_id" (default): matches staged_entities.source_id = sourceID
-// - any other field: matches staged_entities.data->>sourceField = sourceID
-func (r *Repository) GetMergedEntityIDsForRuleCriteria(ctx context.Context, tenantID, entityType, sourceID, sourceField string) ([]StagedToMergedMapping, error) {
+func (r *Repository) GetMergedEntityIDsForRuleCriteria(ctx context.Context, tenantID, entityType, sourceID, integration string) ([]StagedToMergedMapping, error) {
 	ctx, span := tracing.StartSpan(ctx, "mergedentity.Repository.GetMergedEntityIDsForRuleCriteria")
 	defer span.End()
-
-	if sourceField == "" {
-		sourceField = "source_id"
-	}
 
 	var query string
 	var args []interface{}
 
-	if sourceField == "source_id" {
-		// Use indexed source_id lookup
+	if integration != "" {
+		// Filter by integration as well
+		query = `
+			SELECT
+				ec.staged_entity_id,
+				ec.merged_entity_id
+			FROM entity_clusters ec
+			JOIN staged_entities se ON se.id = ec.staged_entity_id
+			WHERE ec.tenant_id = $1
+			  AND se.entity_type = $2
+			  AND se.source_id = $3
+			  AND se.integration = $4
+			  AND ec.removed_at IS NULL
+			  AND se.deleted_at IS NULL
+		`
+		args = []interface{}{tenantID, entityType, sourceID, integration}
+	} else {
+		// No integration filter
 		query = `
 			SELECT
 				ec.staged_entity_id,
@@ -356,30 +364,15 @@ func (r *Repository) GetMergedEntityIDsForRuleCriteria(ctx context.Context, tena
 			  AND se.deleted_at IS NULL
 		`
 		args = []interface{}{tenantID, entityType, sourceID}
-	} else {
-		// Use JSONB field lookup
-		query = `
-			SELECT
-				ec.staged_entity_id,
-				ec.merged_entity_id
-			FROM entity_clusters ec
-			JOIN staged_entities se ON se.id = ec.staged_entity_id
-			WHERE ec.tenant_id = $1
-			  AND se.entity_type = $2
-			  AND (se.data ->> $3) = $4
-			  AND ec.removed_at IS NULL
-			  AND se.deleted_at IS NULL
-		`
-		args = []interface{}{tenantID, entityType, sourceField, sourceID}
 	}
 
 	var mappings []StagedToMergedMapping
 	if err := r.db.SelectContext(ctx, &mappings, query, args...); err != nil {
 		r.logger.WithContext(ctx).WithError(err).WithFields(map[string]any{
-			"tenant_id":    tenantID,
-			"entity_type":  entityType,
-			"source_id":    sourceID,
-			"source_field": sourceField,
+			"tenant_id":   tenantID,
+			"entity_type": entityType,
+			"source_id":   sourceID,
+			"integration": integration,
 		}).Error("Failed to get merged entity IDs for rule criteria")
 		return nil, httperror.NewHTTPError(http.StatusInternalServerError, "failed to get merged entity IDs")
 	}

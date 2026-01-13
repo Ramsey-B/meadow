@@ -1,0 +1,208 @@
+name: Ivy Match Candidate Below Threshold Tests
+description: |
+  Tests match candidates that fall below auto-merge threshold:
+  1. Create entity type with fuzzy match rule (lower threshold)
+  2. Send two entities with similar but not identical values
+  3. Verify match candidates are created for manual review
+
+setup:
+  # Create entity type for threshold testing
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Threshold Test Person"
+        key: "thresholdperson{{timestamp}}"
+        description: "Person for match threshold tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            employee_id:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # Create fuzzy match rule with moderate threshold (generates candidates)
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "Fuzzy Name Match"
+        description: "Match by similar names - generates candidates"
+        priority: 50
+        is_active: true
+        score_weight: 0.7
+        conditions:
+          - field: "name"
+            match_type: "fuzzy"
+            weight: 1.0
+            required: true
+            threshold: 0.6
+      expect:
+        status: 201
+      save_as: fuzzy_rule
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset
+
+steps:
+  # ============================================
+  # Step 1: Send first entity
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "threshold-1-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-thresh-{{uuid}}"
+          execution_id: "okta-thresh-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-thresh-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-thresh-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          name: "Jonathan David Smith"
+          email: "jsmith.{{uuid}}@example.com"
+          employee_id: "emp-{{uuid}}-1"
+          source_id: "okta-thresh-1-{{uuid}}"
+
+  - wait:
+      duration: "8s"
+      reason: "Wait for first entity to be processed"
+
+  # Verify first entity was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: first_staged
+
+  # ============================================
+  # Step 2: Send second entity with similar name
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.staged_entities
+      save_as: staged_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "threshold-2-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "users_sync"
+          config_id: "wd-thresh-{{uuid}}"
+          execution_id: "wd-thresh-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "wd-thresh-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "wd-thresh-{{uuid}}"
+        integration: "workday"
+        timestamp: "2024-01-02T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          name: "Jon D. Smyth"
+          email: "jsmyth.{{uuid}}@example.com"
+          employee_id: "emp-{{uuid}}-2"
+          source_id: "wd-thresh-2-{{uuid}}"
+
+  - wait:
+      duration: "8s"
+      reason: "Wait for second entity and matching"
+
+  # Verify second entity was staged
+  - assert_kafka_message:
+      topic: ivy.public.staged_entities
+      from_offset: "{{staged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{entity_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: second_staged
+
+  # ============================================
+  # Step 3: Check for match candidates in review queue
+  # ============================================
+  
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/match-candidates
+      expect:
+        status: 200
+      save_as: candidates
+
+  # Verify both entities were staged
+  - assert:
+      variable: first_staged.payload.after.entity_type
+      contains: "thresholdperson"
+      message: "First entity should be staged"
+
+  - assert:
+      variable: second_staged.payload.after.entity_type
+      contains: "thresholdperson"
+      message: "Second entity should be staged"
+
+cleanup:
+  # Delete match rule
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{fuzzy_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

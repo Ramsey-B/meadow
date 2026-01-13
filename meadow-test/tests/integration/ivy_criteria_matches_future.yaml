@@ -1,0 +1,333 @@
+name: Ivy Criteria Matches Future Entities Tests
+description: |
+  Tests that criteria-based relationships create merged relationships when 
+  a matching entity is created AFTER the criteria is defined:
+  1. Create and merge person first
+  2. Create criteria-based relationship (Person → Policy where applies_to_role=administrator)
+  3. Later create and merge matching Policy entity
+  4. Verify merged_relationship is created linking person to policy
+
+setup:
+  # Create Person entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Future Criteria Person"
+        key: "ftcperson{{timestamp}}"
+        description: "Person for future criteria match tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            role:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Policy entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Future Criteria Policy"
+        key: "ftcpolicy{{timestamp}}"
+        description: "Policy for future criteria match tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            applies_to_role:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: policy_type
+
+  # Create relationship type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Subject To Policy"
+        key: "ftcsubjto{{timestamp}}"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{policy_type.key}}"
+        cardinality: "many_to_many"
+      expect:
+        status: 201
+      save_as: rel_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: merged_rel_offset
+
+steps:
+  # Set unique IDs for entities to ensure consistent references
+  - set_variable:
+      name: person_source_id
+      value: "okta-admin-{{uuid}}"
+
+  - set_variable:
+      name: policy_source_id
+      value: "intune-policy-{{uuid}}"
+
+  # ============================================
+  # Step 1: Create and merge Person first (source entity)
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "futcrit-person-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-futcrit-{{uuid}}"
+          execution_id: "okta-futcrit-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-futcrit-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-futcrit-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "admin-{{uuid}}@example.com"
+          name: "Admin User"
+          role: "administrator"
+          source_id: "{{person_source_id}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for person to be staged and merged"
+
+  # Verify person was MERGED
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: person_merged
+
+  # ============================================
+  # Step 2: Create CRITERIA relationship to a FUTURE policy
+  # The policy doesn't exist yet! Criteria will wait for matching entity
+  # ============================================
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "futcrit-rel-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "policy_assignments_sync"
+          config_id: "okta-policies-{{uuid}}"
+          execution_id: "okta-policies-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-policies-exec-{{uuid}}"
+        source_key: "policy_assignments_sync"
+        config_id: "okta-policies-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T11:00:00Z"
+        target_schema:
+          type: "relationship"
+          relationship_type: "{{rel_type.key}}"
+        data:
+          _from_source_id: "{{person_source_id}}"
+          _from_entity_type: "{{person_type.key}}"
+          _from_integration: "okta"
+          _to_entity_type: "{{policy_type.key}}"
+          _to_integration: "intune"
+          _to_criteria:
+            applies_to_role: "administrator"
+          assigned_at: "2024-01-01"
+
+  - wait:
+      duration: "5s"
+      reason: "Wait for criteria to be stored"
+
+  # ============================================
+  # Step 3: NOW create and merge the matching Policy
+  # This should trigger criteria evaluation and create merged_relationship
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset_2
+
+  # Get offset RIGHT BEFORE policy - relationship will be created when policy triggers criteria
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: merged_rel_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "futcrit-policy-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "intune"
+          key: "policies_sync"
+          config_id: "intune-futcrit-{{uuid}}"
+          execution_id: "intune-futcrit-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "intune-futcrit-exec-{{uuid}}"
+        source_key: "policies_sync"
+        config_id: "intune-futcrit-{{uuid}}"
+        integration: "intune"
+        timestamp: "2024-01-01T12:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{policy_type.key}}"
+        data:
+          name: "Admin Security Policy"
+          applies_to_role: "administrator"
+          source_id: "{{policy_source_id}}"
+
+  # Get offset for staged_relationships BEFORE policy is created
+  - get_kafka_offset:
+      topic: ivy.public.staged_relationships
+      save_as: staged_rel_offset
+
+  - wait:
+      duration: "15s"
+      reason: "Wait for policy to be staged and criteria to be evaluated"
+
+  # First verify the staged_relationship was created by criteria evaluator
+  - assert_kafka_message:
+      topic: ivy.public.staged_relationships
+      from_offset: "{{staged_rel_offset}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        # The criteria evaluator should have created this relationship
+        - field: payload.after.to_source_id
+          equals: "{{policy_source_id}}"
+      save_as: staged_rel
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for policy to be merged and relationship to be completed"
+
+  # Verify policy was MERGED
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{policy_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: policy_merged
+
+  # ============================================
+  # Step 4: Verify merged_relationship was created
+  # When policy was merged, the incomplete relationship should have been completed
+  # ============================================
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{merged_rel_offset_2}}"
+      timeout: 90s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        # Verify relationship type
+        - field: payload.after.relationship_type
+          contains: "ftcsubjto"
+      save_as: merged_rel
+
+  # Final assertions
+  - assert:
+      variable: person_merged.payload.after.entity_type
+      contains: "ftcperson"
+      message: "Person should be merged first"
+
+  - assert:
+      variable: policy_merged.payload.after.entity_type
+      contains: "ftcpolicy"
+      message: "Policy should be merged (triggers criteria evaluation)"
+
+  - assert:
+      variable: merged_rel.payload.after.relationship_type
+      contains: "ftcsubjto"
+      message: "Merged relationship should be created when policy matches criteria"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{rel_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{policy_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

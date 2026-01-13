@@ -77,6 +77,8 @@ func (m *FieldMerger) MergeField(
 		result = m.preferNonEmpty(values)
 	case models.MergeStrategySourcePriority:
 		result = m.mostTrusted(values, priorities)
+	case models.MergeStrategyPreferSource:
+		result = m.mostTrusted(values, priorities)
 	default:
 		result = m.preferNonEmpty(values)
 	}

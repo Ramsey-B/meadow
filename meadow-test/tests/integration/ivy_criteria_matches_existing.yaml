@@ -1,0 +1,304 @@
+name: Ivy Criteria Matches Existing Entities Tests
+description: |
+  Tests that criteria-based relationships create merged relationships when 
+  entities match existing criteria:
+  1. Create Team entity first (target) and wait for merge
+  2. Create Person entity (source) and wait for merge  
+  3. Create criteria-based relationship (Person → Team where department=Engineering)
+  4. Verify merged_relationship is created linking person to team
+
+setup:
+  # Create Person entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Criteria Match Person"
+        key: "tstcritperson{{timestamp}}"
+        description: "Person for criteria match tests"
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+            name:
+              type: string
+            department:
+              type: string
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: person_type
+
+  # Create Team entity type
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Criteria Match Team"
+        key: "tstcritteam{{timestamp}}"
+        description: "Team for criteria match tests"
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            department:
+              type: string
+          required:
+            - name
+      expect:
+        status: 201
+      save_as: team_type
+
+  # Create relationship type for membership
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/relationship-types
+      body:
+        name: "Member Of Team"
+        key: "tstmemberof{{timestamp}}"
+        from_entity_type: "{{person_type.key}}"
+        to_entity_type: "{{team_type.key}}"
+        cardinality: "many_to_one"
+      expect:
+        status: 201
+      save_as: rel_type
+
+  # Get Kafka offsets
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: merged_rel_offset
+
+steps:
+  # Set unique IDs for entities to ensure consistent references
+  - set_variable:
+      name: team_source_id
+      value: "eng-team-{{uuid}}"
+
+  - set_variable:
+      name: person_source_id
+      value: "okta-engineer-{{uuid}}"
+
+  # ============================================
+  # Step 1: Create EXISTING team first (target)
+  # ============================================
+  - publish_kafka:
+      topic: mapped-data
+      key: "crit-eng-team-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "workday"
+          key: "teams_sync"
+          config_id: "wd-teams-{{uuid}}"
+          execution_id: "wd-teams-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "wd-teams-exec-{{uuid}}"
+        source_key: "teams_sync"
+        config_id: "wd-teams-{{uuid}}"
+        integration: "workday"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{team_type.key}}"
+        data:
+          name: "Engineering Team"
+          department: "Engineering"
+          source_id: "{{team_source_id}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for team to be staged and merged"
+
+  # Verify team was MERGED (not just staged)
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{team_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: team_merged
+
+  # ============================================
+  # Step 2: Create Person entity (source)
+  # ============================================
+  
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "crit-person-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-crit-{{uuid}}"
+          execution_id: "okta-crit-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-crit-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-crit-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T11:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{person_type.key}}"
+        data:
+          email: "engineer-{{uuid}}@example.com"
+          name: "Engineer One"
+          department: "Engineering"
+          source_id: "{{person_source_id}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for person to be staged and merged"
+
+  # Verify person was MERGED
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset_2}}"
+      timeout: 30s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.entity_type
+        contains_value: "{{person_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+      save_as: person_merged
+
+  # ============================================
+  # Step 3: Create CRITERIA-BASED relationship
+  # Both entities are now merged, so relationship should be created
+  # ============================================
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_relationships
+      save_as: merged_rel_offset_2
+
+  - publish_kafka:
+      topic: mapped-data
+      key: "crit-membership-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "memberships_sync"
+          config_id: "okta-memberships-{{uuid}}"
+          execution_id: "okta-memberships-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-memberships-exec-{{uuid}}"
+        source_key: "memberships_sync"
+        config_id: "okta-memberships-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-01T12:00:00Z"
+        target_schema:
+          type: "relationship"
+          relationship_type: "{{rel_type.key}}"
+        data:
+          _from_source_id: "{{person_source_id}}"
+          _from_entity_type: "{{person_type.key}}"
+          _from_integration: "okta"
+          _to_entity_type: "{{team_type.key}}"
+          _to_integration: "workday"
+          _to_criteria:
+            department: "Engineering"
+          role: "member"
+
+  - wait:
+      duration: "15s"
+      reason: "Wait for criteria evaluation and relationship merge"
+
+  # ============================================
+  # Step 4: Verify merged_relationship is created
+  # ============================================
+  - assert_kafka_message:
+      topic: ivy.public.merged_relationships
+      from_offset: "{{merged_rel_offset_2}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        field_contains: payload.after.relationship_type
+        contains_value: "{{rel_type.key}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        # Verify it has the relationship type
+        - field: payload.after.relationship_type
+          contains: "tstmemberof"
+      save_as: merged_rel
+
+  # Final assertions
+  - assert:
+      variable: team_merged.payload.after.entity_type
+      contains: "tstcritteam"
+      message: "Team should be merged"
+
+  - assert:
+      variable: person_merged.payload.after.entity_type
+      contains: "tstcritperson"
+      message: "Person should be merged"
+
+  - assert:
+      variable: merged_rel.payload.after.relationship_type
+      contains: "tstmemberof"
+      message: "Merged relationship should be created from criteria match"
+
+cleanup:
+  # Delete relationship type
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/relationship-types/{{rel_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  # Delete entity types
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{person_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{team_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]

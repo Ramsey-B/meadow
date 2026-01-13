@@ -16,14 +16,14 @@ This document tracks all planned and implemented test cases for the Meadow data 
 | Category      | Implemented | Planned | Total   |
 | ------------- | ----------- | ------- | ------- |
 | Smoke Tests   | 4           | 0       | 4       |
-| Orchid        | 40          | 4       | 44      |
-| Lotus         | 72          | 1       | 73      |
-| Ivy           | 39          | 6       | 45      |
+| Orchid        | 42          | 2       | 44      |
+| Lotus         | 73          | 0       | 73      |
+| Ivy           | 41          | 4       | 45      |
 | Kafka         | 5           | 2       | 7       |
 | E2E Scenarios | 6           | 7       | 13      |
-| **Total**     | **166**     | **20**  | **186** |
+| **Total**     | **168**     | **18**  | **186** |
 
-**Current Test Suite: 89 YAML test files (all passing)**
+**Current Test Suite: 121 YAML test files (all passing)**
 
 ---
 
@@ -118,13 +118,13 @@ Quick validation that services are running and reachable.
 
 ### Rate Limiting
 
-| Status | Test Case                           | Test File                                                                                          |
-| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
-| ✅     | Static rate limit (requests/window) | [`integration/orchid_rate_limit_static.yaml`](integration/orchid_rate_limit_static.yaml)           |
-| ✅     | Dynamic rate limit from headers     | [`integration/orchid_rate_limit_dynamic.yaml`](integration/orchid_rate_limit_dynamic.yaml)         |
-| ⬚      | Per-endpoint rate limits            |                                                                                                    |
-| ⬚      | Global rate limits                  |                                                                                                    |
-| ✅     | Respect Retry-After header          | [`integration/orchid_rate_limit_retry_after.yaml`](integration/orchid_rate_limit_retry_after.yaml) |
+| Status | Test Case                           | Test File                                                                                            |
+| ------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| ✅     | Static rate limit (requests/window) | [`integration/orchid_rate_limit_static.yaml`](integration/orchid_rate_limit_static.yaml)             |
+| ✅     | Dynamic rate limit from headers     | [`integration/orchid_rate_limit_dynamic.yaml`](integration/orchid_rate_limit_dynamic.yaml)           |
+| ✅     | Per-endpoint rate limits            | [`integration/orchid_rate_limit_per_endpoint.yaml`](integration/orchid_rate_limit_per_endpoint.yaml) |
+| ✅     | Global rate limits                  | [`integration/orchid_rate_limit_global.yaml`](integration/orchid_rate_limit_global.yaml)             |
+| ✅     | Respect Retry-After header          | [`integration/orchid_rate_limit_retry_after.yaml`](integration/orchid_rate_limit_retry_after.yaml)   |
 
 ### Scheduling & Triggers
 
@@ -150,13 +150,13 @@ Quick validation that services are running and reachable.
 
 ### Mapping Definition Management
 
-| Status | Test Case                        | Test File                                                                          |
-| ------ | -------------------------------- | ---------------------------------------------------------------------------------- |
-| ✅     | Create/Read mapping definition   | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)       |
-| ✅     | Execute mapping with sample data | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)       |
-| ✅     | Update mapping definition        | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml) |
-| ⬚      | Delete/deactivate mapping        |                                                                                    |
-| ✅     | Mapping versioning               | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml) |
+| Status | Test Case                        | Test File                                                                                              |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ✅     | Create/Read mapping definition   | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)                           |
+| ✅     | Execute mapping with sample data | [`integration/lotus_mapping_crud.yaml`](integration/lotus_mapping_crud.yaml)                           |
+| ✅     | Update mapping definition        | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml)                     |
+| ✅     | Delete/deactivate mapping        | [`integration/lotus_mapping_deactivate_delete.yaml`](integration/lotus_mapping_deactivate_delete.yaml) |
+| ✅     | Mapping versioning               | [`integration/lotus_mapping_updates.yaml`](integration/lotus_mapping_updates.yaml)                     |
 
 ### Binding Management
 
@@ -314,37 +314,38 @@ Quick validation that services are running and reachable.
 
 ### Entity Matching
 
-| Status | Test Case                                              | Test File                                                                        |
-| ------ | ------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| ✅     | Entity staging via CDC (mapped-data → staged_entities) | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)   |
-| ✅     | Entity merging via CDC (staged → merged_entities)      | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)   |
-| ✅     | Same email merge (two sources → one merged entity)     | [`integration/ivy_same_email_merge.yaml`](integration/ivy_same_email_merge.yaml) |
-| ⬚      | Match candidate below threshold (review queue)         |                                                                                  |
+| Status | Test Case                                              | Test File                                                                                          |
+| ------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| ✅     | Entity staging via CDC (mapped-data → staged_entities) | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)                     |
+| ✅     | Entity merging via CDC (staged → merged_entities)      | [`integration/ivy_entity_matching.yaml`](integration/ivy_entity_matching.yaml)                     |
+| ✅     | Same email merge (two sources → one merged entity)     | [`integration/ivy_same_email_merge.yaml`](integration/ivy_same_email_merge.yaml)                   |
+| ✅     | Match candidate below threshold (review queue)         | [`integration/ivy_match_candidate_threshold.yaml`](integration/ivy_match_candidate_threshold.yaml) |
 
 ### Entity Merging
 
-| Status | Test Case                                   | Test File                                                                                      |
-| ------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| ✅     | Entity staging from multiple integrations   | [`integration/ivy_entity_merging.yaml`](integration/ivy_entity_merging.yaml)                   |
-| ✅     | Multiple source entity merge (source_count) | [`integration/ivy_merge_strategy_behavior.yaml`](integration/ivy_merge_strategy_behavior.yaml) |
-| ⬚      | Merge strategy: most_recent                 |                                                                                                |
-| ⬚      | Merge strategy: prefer_non_empty            |                                                                                                |
-| ⬚      | Merge strategy: prefer_source               |                                                                                                |
-| ⬚      | Merge updates relationships                 |                                                                                                |
+| Status | Test Case                                   | Test File                                                                                              |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ✅     | Entity staging from multiple integrations   | [`integration/ivy_entity_merging.yaml`](integration/ivy_entity_merging.yaml)                           |
+| ✅     | Multiple source entity merge (source_count) | [`integration/ivy_merge_strategy_behavior.yaml`](integration/ivy_merge_strategy_behavior.yaml)         |
+| ✅     | Merge strategy: most_recent                 | [`integration/ivy_merge_most_recent.yaml`](integration/ivy_merge_most_recent.yaml)                     |
+| ✅     | Merge strategy: prefer_non_empty            | [`integration/ivy_merge_prefer_non_empty.yaml`](integration/ivy_merge_prefer_non_empty.yaml)           |
+| ⬚      | Merge strategy: prefer_source               |                                                                                                        |
+| ✅     | Merge updates relationships                 | [`integration/ivy_merge_updates_relationships.yaml`](integration/ivy_merge_updates_relationships.yaml) |
 
 ### Relationship Handling
 
-| Status | Test Case                               | Test File                                                                                      |
-| ------ | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| ✅     | Entity staging with relationship types  | [`integration/ivy_relationship_flow.yaml`](integration/ivy_relationship_flow.yaml)             |
-| ✅     | Embedded relationship in entity message | [`integration/ivy_relationship_linking.yaml`](integration/ivy_relationship_linking.yaml)       |
-| ✅     | Relationship with properties            | [`integration/ivy_relationship_properties.yaml`](integration/ivy_relationship_properties.yaml) |
-| ✅     | Relationship before target entity       | [`integration/ivy_relationship_pending.yaml`](integration/ivy_relationship_pending.yaml)       |
-| ✅     | Criteria-based relationship setup       | [`integration/ivy_criteria_relationship.yaml`](integration/ivy_criteria_relationship.yaml)     |
-| ⬚      | Relationship before source entity       |                                                                                                |
-| ⬚      | Relationship before both entities       |                                                                                                |
-| ⬚      | Criteria matches existing entities      |                                                                                                |
-| ⬚      | Criteria matches future entities        |                                                                                                |
+| Status | Test Case                               | Test File                                                                                            |
+| ------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| ✅     | Entity staging with relationship types  | [`integration/ivy_relationship_flow.yaml`](integration/ivy_relationship_flow.yaml)                   |
+| ✅     | Embedded relationship in entity message | [`integration/ivy_relationship_linking.yaml`](integration/ivy_relationship_linking.yaml)             |
+| ✅     | Relationship with properties            | [`integration/ivy_relationship_properties.yaml`](integration/ivy_relationship_properties.yaml)       |
+| ✅     | Relationship before target entity       | [`integration/ivy_relationship_pending.yaml`](integration/ivy_relationship_pending.yaml)             |
+| ✅     | Criteria-based relationship setup       | [`integration/ivy_criteria_relationship.yaml`](integration/ivy_criteria_relationship.yaml)           |
+| ✅     | Relationship before source entity       | [`integration/ivy_relationship_before_source.yaml`](integration/ivy_relationship_before_source.yaml) |
+| ✅     | Relationship before both entities       | [`integration/ivy_relationship_before_both.yaml`](integration/ivy_relationship_before_both.yaml)     |
+| ✅     | Criteria matches existing entities      | [`integration/ivy_criteria_matches_existing.yaml`](integration/ivy_criteria_matches_existing.yaml)   |
+| ✅     | Criteria matches future entities        | [`integration/ivy_criteria_matches_future.yaml`](integration/ivy_criteria_matches_future.yaml)       |
+| ✅     | Standalone relationship message         | [`integration/ivy_standalone_relationship.yaml`](integration/ivy_standalone_relationship.yaml)       |
 
 ### Match Candidates (Review Queue)
 
@@ -358,14 +359,14 @@ Quick validation that services are running and reachable.
 
 ### Deletion Strategies
 
-| Status | Test Case                           | Test File                                                                              |
-| ------ | ----------------------------------- | -------------------------------------------------------------------------------------- |
-| ✅     | Execution-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ✅     | Explicit deletion strategy          | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ✅     | Staleness-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ✅     | List and filter deletion strategies | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ✅     | Grace period (staleness config)     | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml) |
-| ⬚      | Cascade delete relationships        |                                                                                        |
+| Status | Test Case                           | Test File                                                                                                |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| ✅     | Execution-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml)                   |
+| ✅     | Explicit deletion strategy          | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml)                   |
+| ✅     | Staleness-based deletion strategy   | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml)                   |
+| ✅     | List and filter deletion strategies | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml)                   |
+| ✅     | Grace period (staleness config)     | [`integration/ivy_deletion_strategies.yaml`](integration/ivy_deletion_strategies.yaml)                   |
+| ✅     | Cascade delete relationships        | [`integration/ivy_cascade_delete_relationships.yaml`](integration/ivy_cascade_delete_relationships.yaml) |
 
 ### Graph Queries
 
@@ -485,3 +486,71 @@ Tests with specific data assertions:
 
 - **Object keys/values order**: Go maps have non-deterministic iteration order, so `object_keys` and `object_values` assertions check presence, not position
 - **Regex extraction**: Returns full match including prefix (e.g., `@domain.com` not `domain.com`)
+
+---
+
+## Ivy Functionality Review
+
+**Date: 2026-01-12**
+
+### Summary
+
+A comprehensive review of Ivy's codebase and existing tests was conducted. Ivy handles entity resolution including entity/relationship type management, match rules, entity staging/matching/merging via CDC, match candidates (review queue), deletion strategies, and graph queries.
+
+### Functionality Coverage Assessment
+
+| Feature Area                   | Coverage     | Notes                                                |
+| ------------------------------ | ------------ | ---------------------------------------------------- |
+| Entity Type CRUD               | ✅ Excellent | Create, read, update, delete, list all tested        |
+| Entity Type Schema             | ✅ Excellent | Merge strategies, properties tested                  |
+| Relationship Type CRUD         | ✅ Excellent | All cardinalities tested                             |
+| Match Rules                    | ✅ Excellent | Exact, fuzzy, phonetic, blocking, normalizers tested |
+| CDC Pipeline (staged_entities) | ✅ Excellent | Multiple tests verify staging flow                   |
+| CDC Pipeline (merged_entities) | ✅ Excellent | Merge verification via same-email tests              |
+| Match Candidates               | ✅ Good      | CRUD and actions tested                              |
+| Deletion Strategies            | ✅ Good      | CRUD tested, execution not fully verified            |
+| Graph Queries                  | ✅ Good      | Cypher, path, neighbors tested                       |
+| Validation                     | ✅ Good      | Schema validation tested                             |
+| Criteria Relationships         | ✅ Good      | Both existing and future entity matching tested      |
+
+### Test Quality Assessment
+
+**Strengths:**
+
+1. Tests verify actual CDC events on Debezium topics (`ivy.public.staged_entities`, `ivy.public.merged_entities`, `ivy.public.staged_relationships`)
+2. Good use of `get_kafka_offset` to avoid cross-test contamination
+3. Tests for edge cases like relationships before entities exist
+4. Multiple match types tested (exact, fuzzy, phonetic)
+5. Both direct and criteria-based relationships tested
+
+**Recommendations for Future Work:**
+
+1. **Merge Strategy Verification**: Current tests confirm entities merge but could more thoroughly verify field-level merge strategy application
+2. **Cluster Consolidation**: Test when Entity C matches both Entity A (Cluster 1) and Entity B (Cluster 2), clusters consolidate properly
+3. **Normalizer Chaining**: Test multiple normalizers applied in sequence
+4. **Match Weight Calculations**: Verify weighted multi-field matching produces expected confidence scores
+5. **Deletion Execution**: Test actual deletion based on staleness/execution strategies (not just CRUD)
+
+### Key Ivy Models & Behaviors
+
+**MatchRule Conditions:**
+
+- `match_type`: exact, fuzzy, phonetic, numeric, date_range
+- `normalizer`: lowercase, nphone, nemail, nname, digits_only, etc.
+- `weight`: 0.0-1.0 contribution to confidence score
+- `operator`: "AND" or "OR" for combining conditions
+
+**Merge Strategies:**
+
+- `most_recent`: Value from most recently updated source
+- `prefer_non_empty`: First non-null/non-empty value
+- `prefer_source`: Prioritize specific integration
+- `collect_all`: Array of all values
+- `longest`/`shortest`: Text length comparison
+- `max`/`min`/`sum`/`average`: Numeric operations
+
+**Relationship Resolution:**
+
+- Direct relationships link via `source_id` → `source_id`
+- Criteria relationships link via `to_criteria` → matching entity properties
+- Relationships can be staged before entities exist (resolved when entities arrive)

@@ -128,11 +128,23 @@ func (bc *BackgroundConsumer) FindMessage(headerFilters map[string]string, requi
 
 // FindMessageWithBodyFilter looks for a message matching header filters AND body field filters
 func (bc *BackgroundConsumer) FindMessageWithBodyFilter(headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter) *Message {
+	return bc.FindMessageWithBodyFilterFromOffset(0, headerFilters, requiredField, bodyFilter)
+}
+
+// FindMessageWithBodyFilterFromOffset is like FindMessageWithBodyFilter but ignores messages with Offset < minOffset.
+// This is critical for tests that call get_kafka_offset multiple times for the same topic while reusing a single
+// background consumer.
+func (bc *BackgroundConsumer) FindMessageWithBodyFilterFromOffset(minOffset int64, headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter) *Message {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
 	for i := range bc.messages {
 		msg := &bc.messages[i]
+
+		// Enforce from_offset semantics even if the consumer started earlier.
+		if minOffset > 0 && msg.Offset < minOffset {
+			continue
+		}
 
 		// Check if all headers match
 		allMatch := true
@@ -227,13 +239,18 @@ func (bc *BackgroundConsumer) WaitForMessage(headerFilters map[string]string, re
 
 // WaitForMessageWithBodyFilter waits for a message matching header AND body filters
 func (bc *BackgroundConsumer) WaitForMessageWithBodyFilter(headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter, timeout time.Duration) (*Message, error) {
+	return bc.WaitForMessageWithBodyFilterFromOffset(0, headerFilters, requiredField, bodyFilter, timeout)
+}
+
+// WaitForMessageWithBodyFilterFromOffset is like WaitForMessageWithBodyFilter but ignores messages with Offset < minOffset.
+func (bc *BackgroundConsumer) WaitForMessageWithBodyFilterFromOffset(minOffset int64, headerFilters map[string]string, requiredField string, bodyFilter *BodyFilter, timeout time.Duration) (*Message, error) {
 	deadline := time.Now().Add(timeout)
 	attempts := 0
 
 	for time.Now().Before(deadline) {
 		attempts++
 
-		if msg := bc.FindMessageWithBodyFilter(headerFilters, requiredField, bodyFilter); msg != nil {
+		if msg := bc.FindMessageWithBodyFilterFromOffset(minOffset, headerFilters, requiredField, bodyFilter); msg != nil {
 			return msg, nil
 		}
 

@@ -494,6 +494,11 @@ func (p *Processor) processRelationship(ctx context.Context, msg *kafka.Incoming
 		return nil
 	}
 
+	// If relationship type not in data, try target_schema
+	if rel.RelationshipType == "" && msg.LotusMessage.TargetSchema != nil {
+		rel.RelationshipType = msg.LotusMessage.TargetSchema.RelationshipType
+	}
+
 	// Normalize with message integration
 	msgIntegration := msg.LotusMessage.Source.Integration
 	rel.Normalize(msgIntegration)

@@ -70,8 +70,10 @@ func (m *Manager) Check(ctx context.Context, req CheckRequest) (*CheckResult, er
 	// Find matching rate limits for this URL
 	matchingLimits := m.findMatchingLimits(req.URL, req.RateLimits)
 	if len(matchingLimits) == 0 {
+		m.logger.WithContext(ctx).Debugf("No rate limits matched URL=%s (configured=%d)", req.URL, len(req.RateLimits))
 		return &CheckResult{Allowed: true}, nil
 	}
+	m.logger.WithContext(ctx).Debugf("Rate limits matched URL=%s (matched=%d)", req.URL, len(matchingLimits))
 
 	// Track any acquired concurrency slots so we can release on deny.
 	releases := make([]func(), 0, 2)

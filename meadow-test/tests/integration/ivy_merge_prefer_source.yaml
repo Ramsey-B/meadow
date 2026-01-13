@@ -1,0 +1,223 @@
+name: Ivy Merge Strategy Prefer Source (source_priority) Tests
+description: |
+  Tests the source-priority merge strategy (aka "prefer_source"):
+  1. Create entity type with merge_strategy: prefer_source on display_name and source_priorities
+  2. Send entity from low-priority integration with display_name="LOW"
+  3. Send matching entity from high-priority integration with display_name="HIGH"
+  4. Verify merged entity uses display_name from the preferred source
+
+setup:
+  # Create entity type with prefer_source merge strategy on display_name
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/entity-types
+      body:
+        name: "Prefer Source Person"
+        key: "psperson{{timestamp}}"
+        description: "Person for prefer_source/source_priority merge strategy tests"
+        schema:
+          type: object
+          # Ivy extension: source trust ordering
+          source_priorities:
+            - integration: okta
+              priority: 100
+            - integration: msgraph
+              priority: 10
+          properties:
+            email:
+              type: string
+            display_name:
+              type: string
+              merge_strategy: prefer_source
+          required:
+            - email
+      expect:
+        status: 201
+      save_as: entity_type
+
+  # Verify schema persisted (helps debug if merge priorities aren't being applied)
+  - http_request:
+      service: ivy
+      method: GET
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status: 200
+      save_as: entity_type_get
+
+  - assert:
+      variable: entity_type_get.schema
+      contains: "source_priorities"
+      message: "Entity type schema should include source_priorities"
+
+  - assert:
+      variable: entity_type_get.schema
+      contains: "prefer_source"
+      message: "Entity type schema should include prefer_source merge strategy"
+
+  # Create exact email match rule
+  - http_request:
+      service: ivy
+      method: POST
+      path: /api/v1/match-rules
+      body:
+        entity_type: "{{entity_type.key}}"
+        name: "Exact Email Match"
+        description: "Match by exact email"
+        priority: 100
+        is_active: true
+        score_weight: 1.0
+        conditions:
+          - field: "email"
+            match_type: "exact"
+            weight: 1.0
+            required: true
+            case_sensitive: false
+      expect:
+        status: 201
+      save_as: match_rule
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset
+
+steps:
+  - set_variable:
+      name: test_email
+      value: "ps.{{uuid}}@example.com"
+
+  # Low-priority source first
+  - publish_kafka:
+      topic: mapped-data
+      key: "ps-low-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "msgraph"
+          key: "users_sync"
+          config_id: "ms-ps-{{uuid}}"
+          execution_id: "ms-ps-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "ms-ps-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "ms-ps-{{uuid}}"
+        integration: "msgraph"
+        timestamp: "2024-01-01T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "{{test_email}}"
+          display_name: "LOW"
+          source_id: "ms-ps-user-{{uuid}}"
+
+  - wait:
+      duration: "8s"
+      reason: "Wait for first entity to be merged"
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset}}"
+      timeout: 45s
+      filter:
+        skip_tenant_header_filter: true
+        # Filter by the email embedded in the JSONB `data` payload to avoid matching
+        # unrelated merged entity events for the same entity type.
+        field_contains: payload.after.data
+        contains_value: "{{test_email}}"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          equals: "c"
+        - field: payload.after.source_count
+          equals: 1
+        - field: payload.after.entity_type
+          equals: "{{entity_type.key}}"
+        # Debezium JSONB may come through as a JSON string; assert by substring.
+        - field: payload.after.data
+          contains: "display_name"
+        - field: payload.after.data
+          contains: "LOW"
+      save_as: merged_1
+
+  - get_kafka_offset:
+      topic: ivy.public.merged_entities
+      save_as: merged_offset_2
+
+  # Higher-priority source should win for display_name
+  - publish_kafka:
+      topic: mapped-data
+      key: "ps-high-{{uuid}}"
+      headers:
+        tenant_id: "{{test_tenant}}"
+        content_type: "application/json"
+      value:
+        source:
+          type: "orchid"
+          tenant_id: "{{test_tenant}}"
+          integration: "okta"
+          key: "users_sync"
+          config_id: "okta-ps-{{uuid}}"
+          execution_id: "okta-ps-exec-{{uuid}}"
+        tenant_id: "{{test_tenant}}"
+        execution_id: "okta-ps-exec-{{uuid}}"
+        source_key: "users_sync"
+        config_id: "okta-ps-{{uuid}}"
+        integration: "okta"
+        timestamp: "2024-01-02T10:00:00Z"
+        target_schema:
+          type: "entity"
+          entity_type: "{{entity_type.key}}"
+        data:
+          email: "{{test_email}}"
+          display_name: "HIGH"
+          source_id: "okta-ps-user-{{uuid}}"
+
+  - wait:
+      duration: "10s"
+      reason: "Wait for merge update"
+
+  - assert_kafka_message:
+      topic: ivy.public.merged_entities
+      from_offset: "{{merged_offset_2}}"
+      timeout: 60s
+      filter:
+        skip_tenant_header_filter: true
+        # Wait for the merged entity to reflect the preferred-source value.
+        field_contains: payload.after.data
+        contains_value: "HIGH"
+      assertions:
+        - field: payload.after.tenant_id
+          equals: "{{test_tenant}}"
+        - field: payload.op
+          not_empty: true
+        - field: payload.after.source_count
+          equals: 2
+        - field: payload.after.entity_type
+          equals: "{{entity_type.key}}"
+        - field: payload.after.data
+          contains: "display_name"
+        - field: payload.after.data
+          contains: "HIGH"
+      save_as: merged_2
+
+cleanup:
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/match-rules/{{match_rule.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+
+  - http_request:
+      service: ivy
+      method: DELETE
+      path: /api/v1/entity-types/{{entity_type.id}}
+      expect:
+        status_one_of: [200, 204, 404]
+

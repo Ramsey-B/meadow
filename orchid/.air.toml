@@ -5,17 +5,17 @@ tmp_dir = "tmp"
 [build]
   args_bin = ["serve"]
   bin = "./tmp/main"
-  cmd      = "go build -o ./tmp/debug_bin ./cmd"
+  # In this repo we have a workspace-level vendor directory; force readonly module mode
+  # so Air rebuilds don't get stuck in -mod=vendor resolution.
+  cmd      = "go build -mod=readonly -o ./tmp/main ./cmd"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", ".git", ".vscode"]
   exclude_file = []
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
   follow_symlink = false
-  full_bin = "dlv exec ./tmp/debug_bin \
-             --listen=127.0.0.1:2345 \
-             --headless --accept-multiclient \
-             --api-version=2 --continue --log -- "
+  # NOTE: Non-debug hot reload. Use `.air.debug.toml` for Delve debugging.
+  full_bin = ""
   include_dir = []
   include_ext = ["go", "tpl", "tmpl", "html"]
   include_file = []

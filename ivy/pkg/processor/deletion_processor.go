@@ -20,19 +20,19 @@ import (
 // 2. If no more sources remain in the cluster, soft-deletes the merged entity/relationship
 type DeletionProcessor struct {
 	logger           ectologger.Logger
-	stagedEntityRepo stagedentity.Repository
-	stagedRelRepo    stagedrelationship.Repository
-	mergedEntityRepo mergedentity.Repository
-	mergedRelRepo    mergedrelationship.Repository
+	stagedEntityRepo *stagedentity.Repository
+	stagedRelRepo    *stagedrelationship.Repository
+	mergedEntityRepo *mergedentity.Repository
+	mergedRelRepo    *mergedrelationship.Repository
 }
 
 // NewDeletionProcessor creates a new deletion processor
 func NewDeletionProcessor(
 	logger ectologger.Logger,
-	stagedEntityRepo stagedentity.Repository,
-	stagedRelRepo stagedrelationship.Repository,
-	mergedEntityRepo mergedentity.Repository,
-	mergedRelRepo mergedrelationship.Repository,
+	stagedEntityRepo *stagedentity.Repository,
+	stagedRelRepo *stagedrelationship.Repository,
+	mergedEntityRepo *mergedentity.Repository,
+	mergedRelRepo *mergedrelationship.Repository,
 ) *DeletionProcessor {
 	return &DeletionProcessor{
 		logger:           logger,
@@ -138,6 +138,15 @@ func (p *DeletionProcessor) processStagedEntityDeletion(ctx context.Context, env
 		if err := p.mergedEntityRepo.SoftDelete(ctx, row.TenantID, mergedEntity.ID); err != nil {
 			log.WithError(err).Error("Failed to soft delete merged entity")
 			return err
+		}
+
+		// Cascade: soft-delete any merged relationships touching this merged entity.
+		// Without this, merged_relationships can keep pointing at deleted merged entities.
+		if p.mergedRelRepo != nil {
+			if _, err := p.mergedRelRepo.SoftDeleteByMergedEntityID(ctx, row.TenantID, mergedEntity.ID); err != nil {
+				log.WithError(err).Error("Failed to cascade delete merged relationships for merged entity")
+				return err
+			}
 		}
 
 		log.WithFields(map[string]any{

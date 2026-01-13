@@ -82,11 +82,13 @@ func (p *MergeProcessor) ProcessMessage(ctx context.Context, msg *kafka.Incoming
 
 	// Skip if soft-deleted
 	if row.IsDeleted() {
-		p.logger.WithContext(ctx).WithFields(map[string]any{
+		log := p.logger.WithContext(ctx).WithFields(map[string]any{
 			"entity_id":   row.ID,
 			"entity_type": row.EntityType,
 			"tenant_id":   row.TenantID,
-		}).Debug("Skipping soft-deleted entity")
+		})
+		log.Debug("Processing soft-deleted staged entity (cascade cleanup)")
+		_ = p.handleDeletedStagedEntity(ctx, row, log)
 		return nil
 	}
 
@@ -161,6 +163,50 @@ func (p *MergeProcessor) ProcessMessage(ctx context.Context, msg *kafka.Incoming
 		log.WithError(err).Warn("Failed to process relationship rules")
 		// Don't fail the entire operation
 	}
+
+	return nil
+}
+
+// handleDeletedStagedEntity removes a deleted staged entity from its cluster and cascades deletion to the merged entity
+// (and its merged relationships) if no sources remain.
+func (p *MergeProcessor) handleDeletedStagedEntity(ctx context.Context, row *kafka.StagedEntityRow, log ectologger.Logger) error {
+	// Find the merged entity this staged entity belongs to
+	mergedEntities, err := p.mergedRepo.GetMergedEntitiesByStagedIDs(ctx, row.TenantID, []string{row.ID})
+	if err != nil {
+		return err
+	}
+	if len(mergedEntities) == 0 {
+		return nil
+	}
+	mergedEntity := mergedEntities[0]
+
+	// Remove from cluster
+	if err := p.mergedRepo.RemoveFromCluster(ctx, row.TenantID, mergedEntity.ID, row.ID); err != nil {
+		return err
+	}
+
+	// Check if any active cluster members remain
+	members, err := p.mergedRepo.GetClusterMembers(ctx, row.TenantID, mergedEntity.ID)
+	if err != nil {
+		return err
+	}
+	if len(members) > 0 {
+		return nil
+	}
+
+	// No sources left: soft delete merged entity
+	if err := p.mergedRepo.SoftDelete(ctx, row.TenantID, mergedEntity.ID); err != nil {
+		return err
+	}
+
+	// Cascade: soft-delete merged relationships touching this merged entity
+	if p.mergedRelRepo != nil {
+		_, _ = p.mergedRelRepo.SoftDeleteByMergedEntityID(ctx, row.TenantID, mergedEntity.ID)
+	}
+
+	log.WithFields(map[string]any{
+		"merged_entity_id": mergedEntity.ID,
+	}).Info("Soft deleted merged entity (all sources removed)")
 
 	return nil
 }

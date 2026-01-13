@@ -1,0 +1,260 @@
+name: Orchid Per-Endpoint Rate Limits
+description: |
+  Verifies plan_definition.rate_limits supports per-endpoint throttling:
+  - Only requests matching the configured endpoint regex are rate limited
+  - Other endpoints are not impacted
+
+  IMPORTANT: Orchid is expected to emit a SINGLE api-responses message for the fanout step,
+  where response_body is the list of enriched items (each item has sub-step outputs attached).
+  We do NOT expect one message per fanout item.
+
+  This test uses max_execution_seconds bounds to detect incorrect scoping:
+  - If rate limiting were incorrectly applied to ALL endpoints, the execution would take too long and fail.
+  - If rate limiting is correctly applied only to endpoint A, the execution should complete successfully.
+
+steps:
+  - set_variable:
+      name: mock_list_path
+      value: "/mock/rl-list-{{uuid}}"
+
+  - set_variable:
+      name: mock_a1_path
+      value: "/mock/rl-a-{{uuid}}-1"
+  - set_variable:
+      name: mock_a2_path
+      value: "/mock/rl-a-{{uuid}}-2"
+  - set_variable:
+      name: mock_b_path
+      value: "/mock/rl-b-{{uuid}}"
+
+  # Configure list endpoint (returns the fanout items in order: A1, A2, B)
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_list_path}}"
+        response:
+          status: 200
+          body:
+            - path: "{{mock_a1_path}}"
+            - path: "{{mock_a2_path}}"
+            - path: "{{mock_b_path}}"
+      expect:
+        status: 200
+
+  # Configure item endpoints
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_a1_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "A1"
+      expect:
+        status: 200
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_a2_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "A2"
+      expect:
+        status: 200
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure
+      body:
+        method: GET
+        path: "{{mock_b_path}}"
+        response:
+          status: 200
+          body:
+            ok: true
+            endpoint: "B"
+      expect:
+        status: 200
+
+  # Create integration + config
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/integrations
+      body:
+        name: "Per-Endpoint Rate Limit Test {{uuid}}"
+        description: "Test per-endpoint rate limits"
+        config_schema:
+          name: "Rate Limit Config"
+          schema:
+            type: object
+            properties:
+              base_url:
+                type: string
+            required:
+              - base_url
+      expect:
+        status: 201
+      save_as: integration
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/configs
+      body:
+        integration_id: "{{integration.id}}"
+        name: "Per-Endpoint Rate Limit Config"
+        values:
+          base_url: "{{mocks_url}}"
+        enabled: true
+      expect:
+        status: 201
+      save_as: config
+
+  # Create plan: fanout over list, sequential (concurrency=1)
+  # Rate limit applies ONLY to endpoints matching rl-a-*
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans
+      body:
+        integration_id: "{{integration.id}}"
+        key: "per-endpoint-rl-{{uuid}}"
+        name: "Per-Endpoint Rate Limit Plan"
+        description: "Rate limit only on endpoint A, not B"
+        enabled: true
+        plan_definition:
+          rate_limits:
+            - name: "endpoint_a_bucket"
+              endpoint: "rl-a-"
+              requests: 1
+              window_secs: 3
+              scope: "per_endpoint"
+          max_execution_seconds: 5
+          step:
+            url: "{{ config.base_url }}{{mock_list_path}}"
+            method: GET
+            iterate_over: "response.body"
+            concurrency: 1
+            sub_steps:
+              - id: get_item
+                url: "{{ config.base_url }}{{ item.path }}"
+                method: GET
+      expect:
+        status: 201
+      save_as: plan
+
+  - get_kafka_offset:
+      topic: api-responses
+      save_as: resp_offset
+
+  - http_request:
+      service: orchid
+      method: POST
+      path: /api/v1/plans/{{plan.key}}/trigger
+      body:
+        config_id: "{{config.id}}"
+      expect:
+        status: 200
+
+  # We should get exactly 1 api-responses message for the fanout step, where response_body
+  # contains the 3 enriched items.
+  - count_kafka_messages:
+      topic: api-responses
+      from_offset: "{{resp_offset}}"
+      min_count: 1
+      timeout: 60s
+      filter:
+        header: plan_key
+        equals: "{{plan.key}}"
+        has_field: request_url
+      save_as: responses
+
+  - assert:
+      variable: responses.count
+      equals: 1
+      message: "Should receive exactly 1 API response message for the plan (execution events are filtered out)"
+
+  # Validate the enriched payload contains all 3 items and the sub-step output is attached.
+  - assert:
+      variable: responses.messages[0].request_url
+      contains: "rl-list-"
+      message: "Fanout message should be for the list endpoint"
+
+  - assert:
+      variable: responses.messages[0].response_body[0].get_item.endpoint
+      equals: "A1"
+      message: "First item should be enriched with A1 sub-step response"
+
+  - assert:
+      variable: responses.messages[0].response_body[1].get_item.endpoint
+      equals: "A2"
+      message: "Second item should be enriched with A2 sub-step response"
+
+  - assert:
+      variable: responses.messages[0].response_body[2].get_item.endpoint
+      equals: "B"
+      message: "Third item should be enriched with B sub-step response"
+
+cleanup:
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_list_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_a1_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_a2_path}}"
+
+  - http_request:
+      service: mocks
+      method: POST
+      path: /api/test/configure/delete
+      body:
+        method: GET
+        path: "{{mock_b_path}}"
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/plans/{{plan.key}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/configs/{{config.id}}
+
+  - http_request:
+      service: orchid
+      method: DELETE
+      path: /api/v1/integrations/{{integration.id}}
+

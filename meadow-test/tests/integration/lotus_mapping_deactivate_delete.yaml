@@ -1,0 +1,251 @@
+name: Lotus Mapping Deactivate/Delete (via flags)
+description: |
+  Lotus mapping definitions do not currently expose a DELETE endpoint.
+  Instead, mappings can be deactivated or soft-deleted by updating the mapping definition flags:
+    - is_active=false => mapping is no longer returned by GET active definition and cannot be executed
+    - is_deleted=true => mapping is no longer returned by GET active definition and cannot be executed
+
+steps:
+  # Create a simple mapping definition
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/definitions
+      body:
+        name: "Deactivate Mapping Test {{uuid}}"
+        key: "deactivate-mapping-{{uuid}}"
+        description: "Mapping for deactivate/delete tests"
+        source_fields:
+          - id: src_id
+            path: "data.id"
+            type: string
+          - id: src_email
+            path: "data.email"
+            type: string
+        target_fields:
+          - id: tgt_source_id
+            path: "_source_id"
+            type: string
+          - id: tgt_entity_type
+            path: "_entity_type"
+            type: string
+          - id: tgt_email
+            path: "email"
+            type: string
+        steps:
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_id
+            target:
+              field_id: tgt_source_id
+          - source:
+              constant: user
+            target:
+              field_id: tgt_entity_type
+          - source:
+              field_id: src_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 202
+      save_as: mapping
+
+  - assert:
+      variable: mapping.id
+      not_empty: true
+      message: "Mapping should be created"
+
+  # Verify active GET works
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      expect:
+        status: 200
+      save_as: mapping_get
+
+  - assert:
+      variable: mapping_get.is_active
+      equals: true
+      message: "New mapping should be active"
+
+  # Verify execute works while active
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/execute
+      body:
+        id: "{{mapping.id}}"
+        source_raw:
+          data:
+            id: "user-123"
+            email: "JOHN.DOE@EXAMPLE.COM"
+      expect:
+        status: 200
+      save_as: exec_active
+
+  - assert:
+      variable: exec_active.target_raw.email
+      equals: "john.doe@example.com"
+      message: "Active mapping should execute and transform data"
+
+  # Deactivate mapping by updating flags
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      body:
+        id: "{{mapping.id}}"
+        version: 1
+        name: "Deactivate Mapping Test {{uuid}}"
+        key: "deactivate-mapping-{{uuid}}"
+        description: "Mapping for deactivate/delete tests"
+        is_active: false
+        is_deleted: false
+        source_fields:
+          - id: src_id
+            path: "data.id"
+            type: string
+          - id: src_email
+            path: "data.email"
+            type: string
+        target_fields:
+          - id: tgt_source_id
+            path: "_source_id"
+            type: string
+          - id: tgt_entity_type
+            path: "_entity_type"
+            type: string
+          - id: tgt_email
+            path: "email"
+            type: string
+        steps:
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_id
+            target:
+              field_id: tgt_source_id
+          - source:
+              constant: user
+            target:
+              field_id: tgt_entity_type
+          - source:
+              field_id: src_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 202
+      save_as: mapping_deactivated
+
+  - assert:
+      variable: mapping_deactivated.is_active
+      equals: false
+      message: "Mapping should be deactivated"
+
+  # Active GET should now 404
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      expect:
+        status: 404
+
+  # Execute should now 404 (no active mapping)
+  - http_request:
+      service: lotus
+      method: POST
+      path: /api/v1/mappings/execute
+      body:
+        id: "{{mapping.id}}"
+        source_raw:
+          data:
+            id: "user-456"
+            email: "ALICE@EXAMPLE.COM"
+      expect:
+        status: 404
+
+  # Re-activate then soft-delete
+  - http_request:
+      service: lotus
+      method: PUT
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      body:
+        id: "{{mapping.id}}"
+        version: 1
+        name: "Deactivate Mapping Test {{uuid}}"
+        key: "deactivate-mapping-{{uuid}}"
+        description: "Mapping for deactivate/delete tests"
+        is_active: true
+        is_deleted: true
+        source_fields:
+          - id: src_id
+            path: "data.id"
+            type: string
+          - id: src_email
+            path: "data.email"
+            type: string
+        target_fields:
+          - id: tgt_source_id
+            path: "_source_id"
+            type: string
+          - id: tgt_entity_type
+            path: "_entity_type"
+            type: string
+          - id: tgt_email
+            path: "email"
+            type: string
+        steps:
+          - id: lowercase_email
+            type: transformer
+            action:
+              key: text_to_lower
+        links:
+          - source:
+              field_id: src_id
+            target:
+              field_id: tgt_source_id
+          - source:
+              constant: user
+            target:
+              field_id: tgt_entity_type
+          - source:
+              field_id: src_email
+            target:
+              step_id: lowercase_email
+          - source:
+              step_id: lowercase_email
+            target:
+              field_id: tgt_email
+      expect:
+        status: 202
+      save_as: mapping_deleted
+
+  - assert:
+      variable: mapping_deleted.is_deleted
+      equals: true
+      message: "Mapping should be soft-deleted"
+
+  # Active GET should remain 404
+  - http_request:
+      service: lotus
+      method: GET
+      path: /api/v1/mappings/definitions/{{mapping.id}}
+      expect:
+        status: 404
+
